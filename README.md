@@ -20,7 +20,7 @@
 
 ### 编译与运行
 ```bash
-git clone https://github.com/你的用户名/Sanguosha-AI.git
-cd Sanguosha-AI
+git clone https://github.com/qdooo-w/Sanguosha-GameAI.git
+cd Sanguosha-GameAI
 make
 ./sanguosha.exe
