@@ -106,20 +106,32 @@ void game_init(GameState* gs, GameMode mode,
 
     init_character(&gs->players[0], player_hero, PERSON_CONSERVATIVE, 0,
                    player_is_lord, CAMP_PLAYER);
-    init_character(&gs->players[1], ai_hero1, ai_person1, 1, 0,
-                   CAMP_ENEMY);
-    init_character(&gs->players[2], ai_hero2, ai_person2, 1, 0,
-                   CAMP_ENEMY);
-
+    
+    // 在主公局模式下，根据玩家身份设置AI阵营
     if (mode == MODE_LORD_VS_REBELS) {
         if (player_is_lord) {
+            // 玩家是主公，两个AI都是反贼（敌方）
+            init_character(&gs->players[1], ai_hero1, ai_person1, 1, 0,
+                           CAMP_ENEMY);
+            init_character(&gs->players[2], ai_hero2, ai_person2, 1, 0,
+                           CAMP_ENEMY);
             gs->players[0].max_hp = 5;
             gs->players[0].hp = 5;
         } else {
-            gs->players[1].is_lord = 1;
+            // 玩家是反贼，AI1是主公（敌方），AI2是反贼（队友）
+            init_character(&gs->players[1], ai_hero1, ai_person1, 1, 1,
+                           CAMP_ENEMY);
+            init_character(&gs->players[2], ai_hero2, ai_person2, 1, 0,
+                           CAMP_PLAYER);
             gs->players[1].max_hp = 5;
             gs->players[1].hp = 5;
         }
+    } else {
+        // 单挑模式，所有AI都是敌方
+        init_character(&gs->players[1], ai_hero1, ai_person1, 1, 0,
+                       CAMP_ENEMY);
+        init_character(&gs->players[2], ai_hero2, ai_person2, 1, 0,
+                       CAMP_ENEMY);
     }
 
     game_init_deck(gs);
