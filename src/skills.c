@@ -15,3 +15,4 @@ int skill_watch_stars(GameState* gs, int actor_idx) {
     if (gs == NULL) return 0;
     return gs->player_count;
 }
+

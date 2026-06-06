@@ -53,3 +53,13 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Build directory
+build/
+
+# Debug logs
+debug.log
+game_results.txt
+
+# But keep raylib library
+!vendor/raylib/lib/libraylib.a
