@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,6 +30,20 @@ typedef enum {
     PERSON_CONSERVATIVE,
     PERSON_GAMBLER
 } Personality;
+
+
+// AI人格权重参数（从personalities.txt读取）
+typedef struct {
+    Personality personality;
+    double sha_weight;       // 杀权重
+    double shan_weight;      // 闪权重
+    double tao_weight;       // 桃权重
+    double guo_weight;       // 过河拆桥权重
+    double wu_weight;        // 无中生有权重
+    double aggressiveness;   // 激进程度 (0.0~1.0)
+    int hp_threshold;        // 使用桃的血量阈值
+    char name[32];           // 人格名称
+} PersonalityWeights;
 
 // ---------- 数据结构 ----------
 typedef struct {
@@ -71,6 +85,15 @@ typedef struct {
     int player_is_lord;    // 仅在主公局模式有效
     int game_over;
     int winner;            // 0:玩家阵营胜利, 1:敌方阵营胜利
+
+    int turn_phase;        // 0:准备 1:摸牌 2:出牌 3:弃牌 4:结束
+    int sha_used_this_turn;
+
+    int need_shan_response;
+    int shan_source;
+    int shan_target;
+
+    int need_discard;
 } GameState;
 
 typedef struct {
@@ -95,6 +118,9 @@ ActionResult game_perform_action(GameState* gs, Action act);
 int game_is_turn_over(GameState* gs);
 void game_next_turn(GameState* gs);
 int game_get_legal_actions(GameState* gs, int actor_idx, Action* out_actions);
+int game_resolve_shan(GameState* gs, int shan_card_idx);
+void game_discard_card(GameState* gs, int card_idx);
+void game_confirm_discard_done(GameState* gs);
 
 // ---------- 内部辅助函数（供其他Engine内文件调用，不对外）----------
 void draw_card(GameState* gs, int char_idx, int num);
