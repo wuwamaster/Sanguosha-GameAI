@@ -15,6 +15,7 @@ extern int game_resolve_shan(GameState* gs, int shan_card_idx);
 extern void game_discard_card(GameState* gs, int card_idx);
 extern void game_confirm_discard_done(GameState* gs);
 extern void draw_card(GameState* gs, int char_idx, int num);
+extern int game_advance_phase(GameState* gs);
 
 static void setup_state(GameState* gs, int player_count, int game_mode) {
     memset(gs, 0, sizeof(GameState));
@@ -42,7 +43,7 @@ static void test_init_basic_fields() {
     ASSERT_EQ(gs.current_turn, 0, "current_turn应从0开始");
     ASSERT_EQ(gs.mode, MODE_SINGLE, "mode应为单挑模式");
     ASSERT_EQ(gs.game_over, 0, "game_over应为0");
-    ASSERT_EQ(gs.turn_phase, 2, "turn_phase应为出牌阶段(2)");
+    ASSERT_EQ(gs.turn_phase, 0, "turn_phase应从准备阶段(0)开始");
     ASSERT_EQ(gs.sha_used_this_turn, 0, "sha_used_this_turn应为0");
     ASSERT_EQ(gs.need_shan_response, 0, "need_shan_response应为0");
     ASSERT_EQ(gs.need_discard, 0, "need_discard应为0");
@@ -609,6 +610,103 @@ static void test_legal_actions_null_params() {
     TEST_PASS("test_legal_actions_null_params");
 }
 
+static void test_phase_advance_basic() {
+    TEST_START("test_phase_advance_basic");
+    GameState gs;
+    setup_state(&gs, 2, MODE_SINGLE);
+    gs.players[1].is_ai = 1;
+    int old_hand = gs.players[0].hand_count;
+
+    gs.turn_phase = 0;
+    int r = game_advance_phase(&gs);
+    ASSERT_EQ(r, 1, "phase 0→1应返回1");
+    ASSERT_EQ(gs.turn_phase, 1, "应进入摸牌阶段");
+
+    r = game_advance_phase(&gs);
+    ASSERT_EQ(r, 1, "phase 1→2应返回1");
+    ASSERT_EQ(gs.turn_phase, 2, "应进入出牌阶段");
+    ASSERT_EQ(gs.players[0].hand_count, old_hand + 2, "摸牌阶段应摸2张");
+    TEST_PASS("test_phase_advance_basic");
+}
+
+static void test_empty_city_sha_blocked() {
+    TEST_START("test_empty_city_sha_blocked");
+    GameState gs;
+    setup_state(&gs, 2, MODE_SINGLE);
+    gs.players[1].hero = HERO_ZHU_GE_LIANG;
+    gs.players[1].hand_count = 0;
+    gs.players[1].hp = 3;
+    gs.players[0].hand[0] = (Card){CARD_SHA, 0};
+    gs.players[0].hand_count = 1;
+
+    Action actions[MAX_HAND + 1];
+    int count = game_get_legal_actions(&gs, 0, actions);
+    int sha_actions = 0;
+    for (int i = 0; i < count; i++)
+        if (actions[i].action_type == 0) sha_actions++;
+    ASSERT_EQ(sha_actions, 0, "空城诸葛亮不应成为杀的目标");
+    TEST_PASS("test_empty_city_sha_blocked");
+}
+
+static void test_zhaoyun_use_shan_as_sha() {
+    TEST_START("test_zhaoyun_use_shan_as_sha");
+    GameState gs;
+    setup_state(&gs, 2, MODE_SINGLE);
+    gs.players[0].hero = HERO_ZHAO_YUN;
+    gs.players[0].hand[0] = (Card){CARD_SHAN, 0};
+    gs.players[0].hand_count = 1;
+
+    Action act = {0, 0, 1};
+    ActionResult res = game_perform_action(&gs, act);
+    ASSERT_EQ(res.success, 1, "赵云用闪当杀应成功");
+    ASSERT_EQ(gs.players[0].hand_count, 0, "闪应被消耗");
+    ASSERT_EQ(gs.need_shan_response, 1, "应触发杀响应");
+    ASSERT_EQ(gs.shan_target, 1, "目标应为AI");
+    ASSERT_EQ(gs.sha_used_this_turn, 1, "杀计数应增加");
+    TEST_PASS("test_zhaoyun_use_shan_as_sha");
+}
+
+static void test_zhaoyun_use_sha_as_shan() {
+    TEST_START("test_zhaoyun_use_sha_as_shan");
+    GameState gs;
+    setup_state(&gs, 2, MODE_SINGLE);
+    gs.players[1].hero = HERO_ZHAO_YUN;
+    gs.players[1].hp = 3;
+    gs.players[1].hand[0] = (Card){CARD_SHA, 0};
+    gs.players[1].hand_count = 1;
+    gs.players[0].hand[0] = (Card){CARD_SHA, 0};
+    gs.players[0].hand_count = 1;
+
+    game_perform_action(&gs, (Action){0, 0, 1});
+    int result = game_resolve_shan(&gs, 0);
+    ASSERT_EQ(result, 2, "赵云用杀当闪应格挡成功");
+    ASSERT_EQ(gs.players[1].hp, 3, "格挡后不应扣血");
+    ASSERT_EQ(gs.players[1].hand_count, 0, "杀(当闪)应被消耗");
+    TEST_PASS("test_zhaoyun_use_sha_as_shan");
+}
+
+static void test_zhaoyun_legal_actions_include_shan_as_sha() {
+    TEST_START("test_zhaoyun_legal_actions_include_shan_as_sha");
+    GameState gs;
+    setup_state(&gs, 2, MODE_SINGLE);
+    gs.players[0].hero = HERO_ZHAO_YUN;
+    gs.players[0].hand[0] = (Card){CARD_SHAN, 0};
+    gs.players[0].hand[1] = (Card){CARD_SHA, 0};
+    gs.players[0].hand_count = 2;
+
+    Action actions[MAX_HAND + 1];
+    int count = game_get_legal_actions(&gs, 0, actions);
+    int sha_count = 0;
+    for (int i = 0; i < count; i++) {
+        if (actions[i].action_type == 0) {
+            int ci = actions[i].card_index;
+            if (ci >= 0 && ci < gs.players[0].hand_count) sha_count++;
+        }
+    }
+    ASSERT_EQ(sha_count, 2, "赵云应有2个出杀选项(杀+闪转杀)");
+    TEST_PASS("test_zhaoyun_legal_actions_include_shan_as_sha");
+}
+
 // ========== draw_card NULL安全测试 ==========
 
 static void test_draw_card_null_guard() {
@@ -638,12 +736,19 @@ int main() {
     test_perform_invalid_target();
     test_perform_tao_on_other();
 
+    printf("\n-- 技能集成测试 --\n");
+    test_empty_city_sha_blocked();
+    test_zhaoyun_use_shan_as_sha();
+    test_zhaoyun_use_sha_as_shan();
+    test_zhaoyun_legal_actions_include_shan_as_sha();
+
     printf("\n-- game_resolve_shan --\n");
     test_resolve_shan_block_with_shan();
     test_resolve_shan_no_shan_takes_damage();
     test_resolve_shan_wrong_card_type();
 
     printf("\n-- 回合流转 --\n");
+    test_phase_advance_basic();
     test_turn_switch_draws_cards();
     test_turn_switch_lord_draws_3();
     test_turn_skip_dead_player();

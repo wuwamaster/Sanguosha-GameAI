@@ -5,6 +5,9 @@
 extern void apply_card_effect(GameState* gs, int user_idx, Card card, int target_idx);
 extern void draw_card(GameState* gs, int char_idx, int num);
 extern int save_dying(GameState* gs, int dying_idx, int start_idx);
+extern const char* card_type_name(CardType type);
+extern int card_is_offensive(CardType type);
+extern int card_is_defensive(CardType type);
 
 static void init_state(GameState* gs) {
     memset(gs, 0, sizeof(GameState));
@@ -180,12 +183,42 @@ static void test_save_dying_no_tao_dies() {
     TEST_PASS("test_save_dying_no_tao_dies");
 }
 
+static void test_card_type_name_valid() {
+    TEST_START("test_card_type_name_valid");
+    ASSERT_EQ(strcmp(card_type_name(CARD_SHA), "杀"), 0, "杀名称");
+    ASSERT_EQ(strcmp(card_type_name(CARD_SHAN), "闪"), 0, "闪名称");
+    ASSERT_EQ(strcmp(card_type_name(CARD_TAO), "桃"), 0, "桃名称");
+    ASSERT_EQ(strcmp(card_type_name(CARD_GUO_CAI), "过河拆桥"), 0, "过拆名称");
+    ASSERT_EQ(strcmp(card_type_name(CARD_WU_ZHONG), "无中生有"), 0, "无中名称");
+    TEST_PASS("test_card_type_name_valid");
+}
+
+static void test_card_is_offensive() {
+    TEST_START("test_card_is_offensive");
+    ASSERT_EQ(card_is_offensive(CARD_SHA), 1, "杀是进攻牌");
+    ASSERT_EQ(card_is_offensive(CARD_GUO_CAI), 1, "过拆是进攻牌");
+    ASSERT_EQ(card_is_offensive(CARD_TAO), 0, "桃不是进攻牌");
+    ASSERT_EQ(card_is_offensive(CARD_SHAN), 0, "闪不是进攻牌");
+    TEST_PASS("test_card_is_offensive");
+}
+
+static void test_card_is_defensive() {
+    TEST_START("test_card_is_defensive");
+    ASSERT_EQ(card_is_defensive(CARD_SHAN), 1, "闪是防御牌");
+    ASSERT_EQ(card_is_defensive(CARD_TAO), 1, "桃是防御牌");
+    ASSERT_EQ(card_is_defensive(CARD_SHA), 0, "杀不是防御牌");
+    ASSERT_EQ(card_is_defensive(CARD_GUO_CAI), 0, "过拆不是防御牌");
+    TEST_PASS("test_card_is_defensive");
+}
+
 int main() {
     printf("\n=== Cards 边界测试 ===\n\n");
+    printf("-- 基础效果 --\n");
     test_shan_damage();
     test_tao_heal();
     test_guo_cai_discard();
     test_wu_zhong_draw();
+    printf("\n-- 边界 --\n");
     test_tao_not_exceed_max_hp();
     test_tao_full_heal_capped();
     test_guocai_empty_hand();
@@ -193,6 +226,10 @@ int main() {
     test_draw_card_from_empty_pile();
     test_draw_card_from_discard_recycle();
     test_save_dying_no_tao_dies();
+    printf("\n-- 卡牌工具 --\n");
+    test_card_type_name_valid();
+    test_card_is_offensive();
+    test_card_is_defensive();
     printf("\n=== 全部Cards测试完成 ===\n");
     return 0;
 }

@@ -38,6 +38,17 @@ static const char* card_name(CardType type) {
     }
 }
 
+static const char* phase_name(int phase) {
+    switch (phase) {
+        case 0: return "准备阶段";
+        case 1: return "摸牌阶段";
+        case 2: return "出牌阶段";
+        case 3: return "弃牌阶段";
+        case 4: return "回合结束";
+        default: return "未知";
+    }
+}
+
 // 辅助函数：根据表情ID返回 Emoji 字符串
 static const char* emotion_to_emoji(int emotion_id) {
     switch (emotion_id) {
@@ -87,8 +98,9 @@ void ui_draw_game(GameState* gs) {
     }
 
     // 显示当前回合
-    printf(">>> 当前回合: %s <<<\n",
-           gs->current_turn == 0 ? "玩家" : "AI");
+    printf(">>> 当前回合: %s   [%s] <<<\n",
+           gs->current_turn == 0 ? "玩家" : "AI",
+           phase_name(gs->turn_phase));
     printf("===================================\n");
 }
 
@@ -266,4 +278,39 @@ int ui_show_menu(MenuChoice* out) {
     out->ai_person[0] = PERSON_RADICAL;
     out->ai_person[1] = PERSON_CONSERVATIVE;
     return 1;
+}
+
+void ui_get_star_choice(GameState* gs) {
+    if (gs == NULL || !gs->need_star_choice) return;
+
+    printf("\n========== 观星 ==========\n");
+    printf("牌堆顶 %d 张，按当前排列顺序（从左到右 = 牌堆顶到底部）：\n", gs->star_watch_count);
+    printf("  ");
+    for (int i = 0; i < gs->star_watch_count; i++) {
+        int card_idx = gs->star_current_slots[i];
+        printf("[%d] %s    ", i + 1, card_name(gs->star_watch_cards[card_idx].type));
+    }
+    printf("\n");
+    printf("命令：输入两个槽位号交换（如 1 3），或输入 0 确认\n");
+
+    while (1) {
+        printf("> ");
+        int a, b;
+        if (scanf("%d", &a) != 1) break;
+        if (a == 0) break;
+        if (scanf("%d", &b) != 1) break;
+        a--; b--;
+        if (a >= 0 && a < gs->star_watch_count && b >= 0 && b < gs->star_watch_count) {
+            game_swap_star_slots(gs, a, b);
+            printf("  交换后：");
+            for (int i = 0; i < gs->star_watch_count; i++) {
+                int ci = gs->star_current_slots[i];
+                printf("[%d] %s  ", i + 1, card_name(gs->star_watch_cards[ci].type));
+            }
+            printf("\n");
+        } else {
+            printf("  无效槽位\n");
+        }
+    }
+    printf("=========================\n\n");
 }

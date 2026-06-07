@@ -31,8 +31,10 @@ int main() {
                 shan_idx = ui_get_shan_response(&gs);
             } else {
                 Character* ai = &gs.players[gs.shan_target];
+                int is_zhaoyun = (ai->hero == HERO_ZHAO_YUN);
                 for (int i = 0; i < ai->hand_count; i++) {
-                    if (ai->hand[i].type == CARD_SHAN) {
+                    CardType t = ai->hand[i].type;
+                    if (t == CARD_SHAN || (is_zhaoyun && t == CARD_SHA)) {
                         shan_idx = i;
                         break;
                     }
@@ -54,19 +56,28 @@ int main() {
             continue;
         }
 
+        if (gs.need_star_choice) {
+            ui_get_star_choice(&gs);
+            game_confirm_star_choice(&gs);
+            continue;
+        }
+
+        if (gs.turn_phase < 2) {
+            ui_pause(&gs, 0.5);
+            game_advance_phase(&gs);
+            continue;
+        }
+
         Action act;
         if (gs.current_turn == 0) {
             act = ui_get_player_action(&gs);
         } else {
-            /* AI 思考节奏：先停一下，让玩家看清局势 */
             ui_pause(&gs, 0.6);
             act = ai_decide_action(&gs, gs.current_turn);
             ui_show_psych_message(ai_get_last_psych_message(), ai_get_last_emotion());
-            /* 心理气泡可见时间 */
             ui_pause(&gs, 1.0);
         }
 
-        /* 通知出牌区（仅出牌动作） */
         if (act.action_type == 0
             && act.card_index >= 0
             && act.card_index < gs.players[gs.current_turn].hand_count) {
@@ -76,7 +87,6 @@ int main() {
 
         game_perform_action(&gs, act);
 
-        /* 出牌后短暂停顿，让出牌区/血量变化看得见 */
         if (act.action_type == 0 && gs.current_turn != 0) {
             ui_pause(&gs, 0.4);
         }
