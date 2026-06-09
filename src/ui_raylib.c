@@ -863,64 +863,76 @@ void ui_show_initial_hand(GameState* gs) {
     }
 }
 
-/* 获取玩家是否使用桃救人的选择 */
+/* 获取玩家是否使用桃救人的选择（返回桃的索引，-1表示不救） */
 int ui_get_tao_save_choice(GameState* gs, int dying_idx) {
-    if (!gs || dying_idx < 0 || dying_idx >= gs->player_count) return 0;
+    if (!gs || dying_idx < 0 || dying_idx >= gs->player_count) return -1;
     if (!g_window_ready) ui_init();
     
+    Character* p = &gs->players[0];
     const char* dying_name = (dying_idx == 0) ? "你" : 
                             (dying_idx == 1) ? "AI1" : "AI2";
     
-    while (!WindowShouldClose()) {
+    /* 检查是否有桃 */
+    int has_tao = 0;
+    for (int i = 0; i < p->hand_count; i++) {
+        if (p->hand[i].type == CARD_TAO) {
+            has_tao = 1;
+            break;
+        }
+    }
+    
+    /* 如果没有桃，直接返回不救 */
+    if (!has_tao) {
+        double until = GetTime() + 0.8;
+        while (GetTime() < until) {
+            quit_if_window_closed();
+            BeginDrawing();
+            draw_scene(gs, -1, NULL);
+            DrawRectangle(0, 0, WIN_W, WIN_H, (Color){0,0,0,140});
+            char m[128];
+            snprintf(m, sizeof(m), "%s 濒死，但你没有【桃】可以救他", dying_name);
+            int fs = 26, tw = MeasureCN(m, fs);
+            DrawCN(m, (WIN_W - tw)/2, WIN_H/2 - fs/2, fs, RAYWHITE);
+            EndDrawing();
+        }
+        return -1;
+    }
+    
+    /* 显示选择界面 */
+    while (1) {
         quit_if_window_closed();
         Vector2 mp = GetMousePosition();
         int clicked = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
         
         BeginDrawing();
-        ClearBackground((Color){25,25,35,255});
+        draw_scene(gs, -1, NULL);
+        DrawRectangle(0, 0, WIN_W, WIN_H, (Color){0,0,0,140});
         
-        /* 标题 */
-        int title_w = MeasureCN("濒死求桃", 42);
-        DrawCN("濒死求桃", (WIN_W - title_w)/2, 80, 42, RED);
+        /* 提示文字 */
+        char m[128];
+        snprintf(m, sizeof(m), "%s 处于濒死状态：点击一张【桃】救他，或点 [不救]", dying_name);
+        int fs = 24, tw = MeasureCN(m, fs);
+        DrawCN(m, (WIN_W - tw)/2, 320, fs, (Color){255,220,120,255});
         
-        /* 提示信息 */
-        char msg[128];
-        snprintf(msg, sizeof(msg), "%s 处于濒死状态，是否使用【桃】救他？", dying_name);
-        int msg_w = MeasureCN(msg, 26);
-        DrawCN(msg, (WIN_W - msg_w)/2, 200, 26, RAYWHITE);
-        
-        /* 按钮区域 */
-        Rectangle yes_btn = {WIN_W/2 - 140, WIN_H - 120, 120, 55};
-        Rectangle no_btn = {WIN_W/2 + 20, WIN_H - 120, 120, 55};
-        
-        int yes_hover = CheckCollisionPointRec(mp, yes_btn);
-        int no_hover = CheckCollisionPointRec(mp, no_btn);
-        
-        /* 是按钮 */
-        Color yes_color = yes_hover ? (Color){80,180,80,255} : (Color){60,120,60,255};
-        DrawRectangleRec(yes_btn, yes_color);
-        DrawRectangleLinesEx(yes_btn, 2, (Color){100,220,100,255});
-        int yes_w = MeasureCN("使用桃", 24);
-        DrawCN("使用桃", (int)yes_btn.x + ((int)yes_btn.width - yes_w)/2,
-               (int)yes_btn.y + 15, 24, RAYWHITE);
-        
-        /* 否按钮 */
-        Color no_color = no_hover ? (Color){180,80,80,255} : (Color){120,60,60,255};
-        DrawRectangleRec(no_btn, no_color);
-        DrawRectangleLinesEx(no_btn, 2, (Color){220,100,100,255});
-        int no_w = MeasureCN("不救", 24);
-        DrawCN("不救", (int)no_btn.x + ((int)no_btn.width - no_w)/2,
-               (int)no_btn.y + 15, 24, RAYWHITE);
+        /* 不救按钮 */
+        Rectangle giveup = {END_BTN_X-160, END_BTN_Y, 150, END_BTN_H};
+        int gv = draw_button(giveup, "不救", 20, 1);
         
         EndDrawing();
         
+        /* 点击不救按钮 */
+        if (gv) return -1;
+        
+        /* 点击手牌 */
         if (clicked) {
-            if (CheckCollisionPointRec(mp, yes_btn)) return 1;
-            if (CheckCollisionPointRec(mp, no_btn)) return 0;
+            for (int i = 0; i < p->hand_count; i++) {
+                if (!CheckCollisionPointRec(mp, card_rect(i))) continue;
+                if (p->hand[i].type == CARD_TAO) {
+                    return i;  // 返回选中的桃的索引
+                }
+            }
         }
     }
-    
-    return 0;  // 默认不救
 }
 
 void ui_get_star_choice(GameState* gs) {

@@ -36,7 +36,7 @@ void ui_show_events(GameState* gs);
 /* 显示初始手牌界面 */
 void ui_show_initial_hand(GameState* gs);
 
-/* 获取玩家是否使用桃救人的选择 */
+/* 获取玩家是否使用桃救人的选择（返回桃的索引，-1表示不救） */
 int ui_get_tao_save_choice(GameState* gs, int dying_idx);
 
 /* 主菜单：玩家选择模式、武将、阵营。返回 1 确认，0 表示用户取消/关窗。

@@ -267,29 +267,35 @@ int save_dying(GameState* gs, int dying_idx, int start_idx) {
         }
 
         int use_tao = 0;
+        int player_tao_idx = -1;
         if (has_tao) {
             /* AI决策：调用AI函数 */
             if (saver->is_ai) {
                 ui_pause(&gs, 0.3);  // AI思考停顿
                 use_tao = ai_should_use_tao_to_save(gs, searcher, dying_idx);
             } else {
-                /* 玩家决策：调用UI函数 */
-                use_tao = ui_get_tao_save_choice(gs, dying_idx);
+                /* 玩家决策：调用UI函数（返回桃的索引，-1表示不救） */
+                player_tao_idx = ui_get_tao_save_choice(gs, dying_idx);
+                use_tao = (player_tao_idx >= 0);
             }
         }
 
-        if (use_tao && tao_idx >= 0) {
-            remove_card_from_hand(saver, tao_idx);
-            gs->discard_pile[gs->discard_count++] = (Card){CARD_TAO, 0};
-            gs->players[dying_idx].hp++;
-            saved = 1;
+        if (use_tao) {
+            /* 使用玩家选择的桃索引或找到的第一个桃 */
+            int actual_tao_idx = (saver->is_ai) ? tao_idx : player_tao_idx;
+            if (actual_tao_idx >= 0) {
+                remove_card_from_hand(saver, actual_tao_idx);
+                gs->discard_pile[gs->discard_count++] = (Card){CARD_TAO, 0};
+                gs->players[dying_idx].hp++;
+                saved = 1;
 
-            /* 推送濒死救人事件 */
-            char msg[128];
-            const char* saver_name = (searcher == 0) ? "玩家" : 
-                                     (searcher == 1) ? "AI1" : "AI2";
-            snprintf(msg, sizeof(msg), "%s 用【桃】救活了 %s！", saver_name, dying_name);
-            game_push_event(gs, EVENT_TAO_SAVE, searcher, dying_idx, CARD_TAO, msg);
+                /* 推送濒死救人事件 */
+                char msg[128];
+                const char* saver_name = (searcher == 0) ? "玩家" : 
+                                         (searcher == 1) ? "AI1" : "AI2";
+                snprintf(msg, sizeof(msg), "%s 用【桃】救活了 %s！", saver_name, dying_name);
+                game_push_event(gs, EVENT_TAO_SAVE, searcher, dying_idx, CARD_TAO, msg);
+            }
         }
     }
 
@@ -516,7 +522,9 @@ ActionResult game_perform_action(GameState* gs, Action act) {
             const char* tgt = (act.target == 0) ? "玩家" : (act.target == 1) ? "AI1" : "AI2";
             const char* card_name = "";
             switch (card.type) {
-                case CARD_TAO: card_name = "桃"; break;
+                case CARD_SHA:    card_name = "杀"; break;
+                case CARD_SHAN:   card_name = "闪"; break;
+                case CARD_TAO:    card_name = "桃"; break;
                 case CARD_GUO_CAI: card_name = "过河拆桥"; break;
                 case CARD_WU_ZHONG: card_name = "无中生有"; break;
                 default: card_name = "?";
