@@ -385,9 +385,8 @@ int ai_decide_discard(GameState* gs, int ai_idx) {
  * ======================================================================== */
 void ai_decide_star_order(GameState* gs, int ai_idx,
                           Card* cards, int count) {
-    (void)gs;
+    if (gs == NULL || ai_idx < 0 || ai_idx >= gs->player_count) return;
     if (count <= 1) return;
-    if (ai_idx < 0 || ai_idx >= gs->player_count) return;
 
     Character* ch = &gs->players[ai_idx];
     Personality p = ch->personality;

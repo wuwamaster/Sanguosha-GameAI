@@ -17,26 +17,48 @@
 
 int main() {
     printf("=== 三国杀·人格分裂AI ===\n");
+    fflush(stdout);
 
     /* 初始化 UI 和游戏 */
     ui_init();
 
     MenuChoice mc;
+    printf("[DEBUG] Calling ui_show_menu...\n");
+    fflush(stdout);
     if (!ui_show_menu(&mc)) {
+        printf("[DEBUG] ui_show_menu returned 0, exiting\n");
+        fflush(stdout);
         ui_close();
         return 0;
     }
+    printf("[DEBUG] ui_show_menu succeeded, mode=%d, hero=%d, is_lord=%d\n", 
+           mc.mode, mc.player_hero, mc.player_is_lord);
+    fflush(stdout);
 
     GameState gs;
+    printf("[DEBUG] Calling game_init...\n");
+    fflush(stdout);
     game_init(&gs, mc.mode,
               mc.player_is_lord,
               mc.player_hero,
               mc.ai_hero[0], mc.ai_person[0],
               mc.ai_hero[1], mc.ai_person[1]);
+    printf("[DEBUG] game_init done, player_count=%d, current_turn=%d, game_over=%d\n", 
+           gs.player_count, gs.current_turn, gs.game_over);
+    fflush(stdout);
     
     /* 发初始手牌并显示 */
+    printf("[DEBUG] Calling game_deal_initial_cards...\n");
+    fflush(stdout);
     game_deal_initial_cards(&gs);
+    printf("[DEBUG] Initial hands dealt\n");
+    fflush(stdout);
+    
+    printf("[DEBUG] Calling ui_show_initial_hand...\n");
+    fflush(stdout);
     ui_show_initial_hand(&gs);
+    printf("[DEBUG] Initial hand shown\n");
+    fflush(stdout);
 
     /* ====================================================================
      * 游戏主循环
@@ -47,6 +69,10 @@ int main() {
      * ==================================================================== */
     
     while (!gs.game_over) {
+        printf("[DEBUG] turn=%d phase=%d game_over=%d need_shan=%d need_discard=%d\n", 
+               gs.current_turn, gs.turn_phase, gs.game_over, 
+               gs.need_shan_response, gs.need_discard);
+        fflush(stdout);
         
         /* -----------------------------------------------------------
          * 1. 绘制游戏画面（每帧都绘制）

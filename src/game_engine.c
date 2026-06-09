@@ -100,7 +100,7 @@ void game_init(GameState* gs, GameMode mode,
     memset(gs, 0, sizeof(GameState));
     gs->mode = mode;
     gs->player_is_lord = player_is_lord;
-    gs->player_count = 3;
+    gs->player_count = (mode == MODE_SINGLE) ? 2 : 3;  // 单挑模式2人，主公局3人
     gs->current_turn = 0;  // 临时初始化，后面会根据模式调整
     gs->game_over = 0;
     gs->winner = 0;
@@ -134,10 +134,8 @@ void game_init(GameState* gs, GameMode mode,
             gs->players[1].hp = 5;
         }
     } else {
-        // 单挑模式，所有AI都是敌方
+        // 单挑模式，只有一个AI
         init_character(&gs->players[1], ai_hero1, ai_person1, 1, 0,
-                       CAMP_ENEMY);
-        init_character(&gs->players[2], ai_hero2, ai_person2, 1, 0,
                        CAMP_ENEMY);
     }
 
@@ -401,6 +399,7 @@ int game_get_legal_actions(GameState* gs, int actor_idx, Action* out_actions) {
             // 为每个合法目标生成动作
             int found = 0;
             for (int t = 0; t < gs->player_count; t++) {
+                if (count >= MAX_HAND) break;  // 防止越界
                 if (card_target_is_legal(gs, actor_idx, CARD_SHA, t)) {
                     out_actions[count].action_type = 0;
                     out_actions[count].card_index = i;
@@ -422,6 +421,7 @@ int game_get_legal_actions(GameState* gs, int actor_idx, Action* out_actions) {
             }
             if (!found) continue;
         } else if (type == CARD_TAO) {
+            if (count >= MAX_HAND) break;  // 防止越界
             if (card_target_is_legal(gs, actor_idx, type, actor_idx)) {
                 out_actions[count].action_type = 0;
                 out_actions[count].card_index = i;
@@ -432,6 +432,7 @@ int game_get_legal_actions(GameState* gs, int actor_idx, Action* out_actions) {
             }
         } else {
             for (int t = 0; t < gs->player_count; t++) {
+                if (count >= MAX_HAND) break;  // 防止越界
                 if (card_target_is_legal(gs, actor_idx, type, t)) {
                     out_actions[count].action_type = 0;
                     out_actions[count].card_index = i;
@@ -444,12 +445,14 @@ int game_get_legal_actions(GameState* gs, int actor_idx, Action* out_actions) {
         }
     }
 
-    out_actions[count].action_type = 1;
-    out_actions[count].card_index = -1;
-    out_actions[count].target = -1;
-    out_actions[count].use_longdan_sha = 0;
-    out_actions[count].use_longdan_shan = 0;
-    count++;
+    if (count < MAX_HAND) {  // 防止越界
+        out_actions[count].action_type = 1;
+        out_actions[count].card_index = -1;
+        out_actions[count].target = -1;
+        out_actions[count].use_longdan_sha = 0;
+        out_actions[count].use_longdan_shan = 0;
+        count++;
+    }
 
     return count;
 }

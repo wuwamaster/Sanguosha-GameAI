@@ -603,8 +603,18 @@ static void random_fill_ai(MenuChoice* mc, int avoid_player_hero, int avoid_camp
 }
 
 int ui_show_menu(MenuChoice* out) {
+    printf("[MENU DEBUG] Entering ui_show_menu\n");
+    fflush(stdout);
+    
     if (!g_window_ready) ui_init();
-    if (!out) return 0;
+    printf("[MENU DEBUG] UI initialized, g_window_ready=%d\n", g_window_ready);
+    fflush(stdout);
+    
+    if (!out) {
+        printf("[MENU DEBUG] out is NULL, returning 0\n");
+        fflush(stdout);
+        return 0;
+    }
     srand((unsigned)time(NULL));
 
     int step = 0;                  /* 0:模式 1:阵营(主公局) 2:武将 3:确认 */
@@ -612,7 +622,13 @@ int ui_show_menu(MenuChoice* out) {
     int sel_camp = -1;             /* 0=主公, 1=反贼（仅主公局有效） */
     int sel_hero = -1;             /* 0/1/2 */
 
+    printf("[MENU DEBUG] Starting menu loop\n");
+    fflush(stdout);
+    
     while (1) {
+        printf("[MENU DEBUG] Loop iteration, step=%d\n", step);
+        fflush(stdout);
+        
         quit_if_window_closed();
         Vector2 mp = GetMousePosition();
 
@@ -640,12 +656,22 @@ int ui_show_menu(MenuChoice* out) {
             int h2 = CheckCollisionPointRec(mp, r2);
             int c1 = draw_choice_card(r1, "单挑模式", "玩家 vs 1 个 AI，公平对战", sel_mode==0, h1);
             int c2 = draw_choice_card(r2, "主公局",   "主公 vs 2 反贼，主公增益", sel_mode==1, h2);
-            if (c1) sel_mode = 0;
-            if (c2) sel_mode = 1;
+            if (c1) {
+                sel_mode = 0;
+                printf("[MENU DEBUG] Selected mode: 单挑\n");
+                fflush(stdout);
+            }
+            if (c2) {
+                sel_mode = 1;
+                printf("[MENU DEBUG] Selected mode: 主公局\n");
+                fflush(stdout);
+            }
 
             Rectangle next = {WIN_W/2 - 80, 380, 160, 50};
             int nx = draw_button(next, "下一步", 22, sel_mode >= 0);
             if (nx) {
+                printf("[MENU DEBUG] Next button clicked, step=%d, sel_mode=%d\n", step, sel_mode);
+                fflush(stdout);
                 if (sel_mode == 0) { sel_camp = 0; step = 2; }   /* 单挑跳过阵营 */
                 else step = 1;
             }
@@ -658,13 +684,25 @@ int ui_show_menu(MenuChoice* out) {
             int h2 = CheckCollisionPointRec(mp, r2);
             int c1 = draw_choice_card(r1, "主公",  "血量上限 +1，摸牌阶段摸 3 张", sel_camp==0, h1);
             int c2 = draw_choice_card(r2, "反贼",  "与另一 AI 反贼共同对抗 AI 主公", sel_camp==1, h2);
-            if (c1) sel_camp = 0;
-            if (c2) sel_camp = 1;
+            if (c1) {
+                sel_camp = 0;
+                printf("[MENU DEBUG] Selected camp: 主公\n");
+                fflush(stdout);
+            }
+            if (c2) {
+                sel_camp = 1;
+                printf("[MENU DEBUG] Selected camp: 反贼\n");
+                fflush(stdout);
+            }
 
             Rectangle back = {WIN_W/2 - 200, 380, 130, 46};
             Rectangle next = {WIN_W/2 +  60, 380, 130, 46};
             if (draw_button(back, "上一步", 20, 1)) step = 0;
-            if (draw_button(next, "下一步", 20, sel_camp >= 0)) step = 2;
+            if (draw_button(next, "下一步", 20, sel_camp >= 0)) {
+                printf("[MENU DEBUG] Next button clicked, step=%d, sel_camp=%d\n", step, sel_camp);
+                fflush(stdout);
+                step = 2;
+            }
         }
         else if (step == 2) {
             /* 武将 */
@@ -678,23 +716,40 @@ int ui_show_menu(MenuChoice* out) {
                 Rectangle r = {80 + i * 290, 200, 260, 160};
                 int h = CheckCollisionPointRec(mp, r);
                 int c = draw_choice_card(r, names[i], descs[i], sel_hero==i, h);
-                if (c) sel_hero = i;
+                if (c) {
+                    sel_hero = i;
+                    printf("[MENU DEBUG] Selected hero: %d (%s)\n", sel_hero, names[i]);
+                    fflush(stdout);
+                }
             }
 
             Rectangle back = {WIN_W/2 - 200, 400, 130, 46};
             Rectangle next = {WIN_W/2 +  60, 400, 130, 46};
             int back_to = (sel_mode == 0) ? 0 : 1;
             if (draw_button(back, "上一步", 20, 1)) step = back_to;
-            if (draw_button(next, "开始游戏", 22, sel_hero >= 0)) step = 3;
+            if (draw_button(next, "开始游戏", 22, sel_hero >= 0)) {
+                printf("[MENU DEBUG] Start button clicked, step=%d, sel_hero=%d\n", step, sel_hero);
+                fflush(stdout);
+                step = 3;
+            }
         }
         else if (step == 3) {
             /* 填写并返回 */
+            printf("[MENU DEBUG] Step 3: mode=%d, hero=%d, is_lord=%d, ai_count=%d\n", 
+                   (sel_mode == 1) ? MODE_LORD_VS_REBELS : MODE_SINGLE,
+                   sel_hero,
+                   (sel_mode == 1 && sel_camp == 0) ? 1 : 0,
+                   (sel_mode == 1) ? 2 : 1);
+            fflush(stdout);
+            
             out->mode           = (sel_mode == 1) ? MODE_LORD_VS_REBELS : MODE_SINGLE;
             out->player_hero    = (HeroType)sel_hero;
             out->player_is_lord = (sel_mode == 1 && sel_camp == 0) ? 1 : 0;
             out->ai_count       = (sel_mode == 1) ? 2 : 1;
             random_fill_ai(out, out->player_hero, out->player_hero);
             EndDrawing();
+            printf("[MENU DEBUG] Returning from ui_show_menu\n");
+            fflush(stdout);
             return 1;
         }
         EndDrawing();
