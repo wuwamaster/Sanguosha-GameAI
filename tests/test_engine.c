@@ -11,7 +11,7 @@ extern ActionResult game_perform_action(GameState* gs, Action act);
 extern int game_is_turn_over(GameState* gs);
 extern void game_next_turn(GameState* gs);
 extern int game_get_legal_actions(GameState* gs, int actor_idx, Action* out_actions);
-extern int game_resolve_shan(GameState* gs, int shan_card_idx);
+extern int game_resolve_shan(GameState* gs, int shan_card_idx, int use_sha_as_shan);
 extern void game_discard_card(GameState* gs, int card_idx);
 extern void game_confirm_discard_done(GameState* gs);
 extern void draw_card(GameState* gs, int char_idx, int num);
@@ -219,7 +219,7 @@ static void test_perform_sha_limit_non_zhangfei() {
     game_perform_action(&gs, act1);
     ASSERT_EQ(gs.need_shan_response, 1, "第一次出杀应成功");
 
-    game_resolve_shan(&gs, -1);
+    game_resolve_shan(&gs, -1, 0);
     ASSERT_EQ(gs.need_shan_response, 0, "第一次杀应已结算");
 
     Action act2 = {0, 0, 1};
@@ -281,7 +281,7 @@ static void test_resolve_shan_block_with_shan() {
     gs.players[1].hp = 3;
 
     game_perform_action(&gs, (Action){0, 0, 1});
-    int result = game_resolve_shan(&gs, 0);
+    int result = game_resolve_shan(&gs, 0, 0);
     ASSERT_EQ(result, 2, "出闪后应返回2(已格挡)");
     ASSERT_EQ(gs.need_shan_response, 0, "闪响应状态应清除");
     ASSERT_EQ(gs.players[1].hp, 3, "被格挡后不应扣血");
@@ -299,7 +299,7 @@ static void test_resolve_shan_no_shan_takes_damage() {
     gs.players[1].hp = 3;
 
     game_perform_action(&gs, (Action){0, 0, 1});
-    int result = game_resolve_shan(&gs, -1);
+    int result = game_resolve_shan(&gs, -1, 0);
     ASSERT_EQ(result, 1, "不出闪应返回1(命中)");
     ASSERT_EQ(gs.need_shan_response, 0, "闪响应状态应清除");
     ASSERT_EQ(gs.players[1].hp, 2, "命中后应扣血");
@@ -317,7 +317,7 @@ static void test_resolve_shan_wrong_card_type() {
     gs.players[1].hp = 3;
 
     game_perform_action(&gs, (Action){0, 0, 1});
-    int result = game_resolve_shan(&gs, 0);
+    int result = game_resolve_shan(&gs, 0, 0);
     ASSERT_EQ(result, 1, "用杀当闪应返回1(命中)");
     ASSERT_EQ(gs.players[1].hp, 2, "非闪应扣血");
     TEST_PASS("test_resolve_shan_wrong_card_type");
@@ -459,7 +459,7 @@ static void test_death_single_mode_gameover() {
     gs.players[1].hand_count = 0;
 
     game_perform_action(&gs, (Action){0, 0, 1});
-    game_resolve_shan(&gs, -1);
+    game_resolve_shan(&gs, -1, 0);
     ASSERT_EQ(gs.players[1].hp, 0, "杀命中后目标hp应为0");
     ASSERT_EQ(gs.game_over, 1, "单挑模式一方死亡应game_over");
     ASSERT_EQ(gs.winner, 0, "玩家阵营应胜利");
@@ -479,7 +479,7 @@ static void test_death_lord_dies_rebels_win() {
     gs.players[2].camp = CAMP_ENEMY;
 
     game_perform_action(&gs, (Action){0, 0, 1});
-    game_resolve_shan(&gs, -1);
+    game_resolve_shan(&gs, -1, 0);
     ASSERT_EQ(gs.players[1].hp, 0, "主公hp应为0");
     ASSERT_EQ(gs.game_over, 1, "主公死亡应game_over");
     ASSERT_EQ(gs.winner, 0, "敌方主公死亡→玩家阵营胜利→winner=0");
@@ -503,7 +503,7 @@ static void test_death_all_rebels_die_lord_wins() {
     gs.players[0].hand_count = 1;
 
     game_perform_action(&gs, (Action){0, 0, 2});
-    game_resolve_shan(&gs, -1);
+    game_resolve_shan(&gs, -1, 0);
     ASSERT_EQ(gs.players[2].hp, 0, "第二个反贼hp应为0");
     ASSERT_EQ(gs.game_over, 1, "所有反贼死亡应game_over");
     printf("  (注: winner实际=%d)\n", gs.winner);
@@ -524,7 +524,7 @@ static void test_save_dying_player_uses_tao() {
     gs.players[1].is_ai = 0;
 
     game_perform_action(&gs, (Action){0, 0, 1});
-    game_resolve_shan(&gs, -1);
+    game_resolve_shan(&gs, -1, 0);
     ASSERT_EQ(gs.players[1].hp, 1, "玩家使用桃自救后hp应恢复");
     ASSERT_EQ(gs.players[1].hand_count, 0, "桃应被消耗");
     ASSERT_EQ(gs.game_over, 0, "自救成功后不应game_over");
@@ -657,6 +657,7 @@ static void test_zhaoyun_use_shan_as_sha() {
     gs.players[0].hand_count = 1;
 
     Action act = {0, 0, 1};
+    act.use_longdan_sha = 1;
     ActionResult res = game_perform_action(&gs, act);
     ASSERT_EQ(res.success, 1, "赵云用闪当杀应成功");
     ASSERT_EQ(gs.players[0].hand_count, 0, "闪应被消耗");
@@ -678,7 +679,7 @@ static void test_zhaoyun_use_sha_as_shan() {
     gs.players[0].hand_count = 1;
 
     game_perform_action(&gs, (Action){0, 0, 1});
-    int result = game_resolve_shan(&gs, 0);
+    int result = game_resolve_shan(&gs, 0, 1);
     ASSERT_EQ(result, 2, "赵云用杀当闪应格挡成功");
     ASSERT_EQ(gs.players[1].hp, 3, "格挡后不应扣血");
     ASSERT_EQ(gs.players[1].hand_count, 0, "杀(当闪)应被消耗");

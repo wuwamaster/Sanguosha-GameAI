@@ -17,7 +17,7 @@ all: dirs $(TARGET)
 test: dirs $(TEST_TARGETS)
 
 dirs:
-	if not exist $(BUILD_DIR) mkdir $(BUILD_DIR)
+	-mkdir $(BUILD_DIR)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | dirs
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -29,7 +29,8 @@ tests/%.exe: tests/%.c | dirs
 	$(CC) $(CFLAGS) $< $(TEST_SRC) -o $@
 
 clean:
-	del /F /Q $(TARGET) tests\*.exe 2>nul
-	rd /S /Q $(BUILD_DIR) 2>nul
+	-del /q /f $(TARGET) 2>nul
+	-rmdir /s /q $(BUILD_DIR) 2>nul
+	-del /q /f tests\*.exe 2>nul
 
 .PHONY: all clean test dirs
