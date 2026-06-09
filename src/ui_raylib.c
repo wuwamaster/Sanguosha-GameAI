@@ -389,10 +389,21 @@ Action ui_get_player_action(GameState* gs) {
         if (hit_card >= 0) {
             CardType ct = p->hand[hit_card].type;
             if (ct == CARD_SHAN) {
-                /* 闪在出牌阶段不可主动出 */
-                hint = "【闪】只能在被【杀】时使用，不可主动出";
-                selected = -1;
-                continue;
+                int is_zhaoyun = (p->hero == HERO_ZHAO_YUN);
+                if (!is_zhaoyun) {
+                    hint = "【闪】只能在被【杀】时使用，不可主动出";
+                    selected = -1;
+                    continue;
+                }
+                int has_target = 0;
+                for (int t = 1; t < gs->player_count; t++)
+                    if (gs->players[t].hp > 0 &&
+                        !skill_empty_city_blocks_sha(gs, t)) has_target = 1;
+                if (!has_target) {
+                    hint = "没有可攻击的目标";
+                    selected = -1;
+                    continue;
+                }
             }
             if (selected == hit_card) selected = -1;
             else {
@@ -429,6 +440,10 @@ Action ui_get_player_action(GameState* gs) {
                     ok = (hit_target != 0);
                     if (!ok) hint = "该牌不能对自己使用";
                     break;
+                case CARD_SHAN:
+                    ok = (p->hero == HERO_ZHAO_YUN && hit_target != 0);
+                    if (!ok) hint = "闪只能在本回合作为【杀】对他人使用";
+                    break;
                 default:
                     ok = 1;
             }
@@ -463,8 +478,11 @@ int ui_get_shan_response(GameState* gs) {
     Character* p = &gs->players[0];
 
     int has_shan = 0;
-    for (int i = 0; i < p->hand_count; i++)
-        if (p->hand[i].type == CARD_SHAN) { has_shan = 1; break; }
+    int is_zhaoyun_p = (p->hero == HERO_ZHAO_YUN);
+    for (int i = 0; i < p->hand_count; i++) {
+        CardType t = p->hand[i].type;
+        if (t == CARD_SHAN || (is_zhaoyun_p && t == CARD_SHA)) { has_shan = 1; break; }
+    }
     if (!has_shan) {
         double until = GetTime() + 0.8;
         while (GetTime() < until) {
@@ -487,9 +505,10 @@ int ui_get_shan_response(GameState* gs) {
 
         BeginDrawing();
         draw_scene(gs, -1, NULL);
-        /* 模态遮罩 */
         DrawRectangle(0, 0, WIN_W, WIN_H, (Color){0,0,0,140});
-        const char* m = "你被【杀】了：点击一张【闪】抵消，或点 [承受伤害]";
+        const char* m = is_zhaoyun_p
+            ? "你被【杀】了：点击【闪】或【杀】抵消，或点 [承受伤害]"
+            : "你被【杀】了：点击一张【闪】抵消，或点 [承受伤害]";
         int fs = 24, tw = MeasureCN(m, fs);
         DrawCN(m, (WIN_W - tw)/2, 320, fs, (Color){255,220,120,255});
         Rectangle giveup = {END_BTN_X-160, END_BTN_Y, 150, END_BTN_H};
@@ -499,8 +518,9 @@ int ui_get_shan_response(GameState* gs) {
         if (gv) return -1;
         if (clicked) {
             for (int i = 0; i < p->hand_count; i++) {
-                if (CheckCollisionPointRec(mp, card_rect(i))
-                    && p->hand[i].type == CARD_SHAN) return i;
+                CardType t = p->hand[i].type;
+                if (!CheckCollisionPointRec(mp, card_rect(i))) continue;
+                if (t == CARD_SHAN || (is_zhaoyun_p && t == CARD_SHA)) return i;
             }
         }
     }

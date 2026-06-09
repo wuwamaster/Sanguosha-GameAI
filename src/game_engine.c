@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-extern int skill_can_use_sha(GameState* gs, int actor_idx);
+extern int skill_can_use_sha(GameState* gs, int actor_idx);//
 extern int skill_can_convert(GameState* gs, int actor_idx, CardType type);
 extern int skill_watch_stars(GameState* gs, int actor_idx, Card* out_top, int* out_count);
 extern void skill_watch_stars_apply(GameState* gs, Card* new_order, int count);
@@ -257,6 +257,9 @@ static int card_target_is_legal(GameState* gs, int actor_idx, CardType type, int
     if (gs->players[target_idx].hp <= 0)
         return 0;
     if (type == CARD_TAO) {
+        return target_idx == actor_idx;
+    }
+    if (type == CARD_WU_ZHONG) {
         return target_idx == actor_idx;
     }
     if (type == CARD_SHA) {
