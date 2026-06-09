@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-extern int skill_can_use_sha(GameState* gs, int actor_idx);
+extern int skill_can_use_sha(GameState* gs, int actor_idx);//
 extern int skill_can_convert(GameState* gs, int actor_idx, CardType type);
 extern int skill_watch_stars(GameState* gs, int actor_idx, Card* out_top, int* out_count);
 extern void skill_watch_stars_apply(GameState* gs, Card* new_order, int count);
