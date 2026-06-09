@@ -221,6 +221,17 @@ static void draw_scene(GameState* gs, int selected_card, const char* hint) {
                       gs->current_turn, phase_name(gs->turn_phase)),
            40, 235, 20, YELLOW);
 
+    /* 阶段指示横幅（准备/摸牌阶段特别提示） */
+    if (gs->turn_phase == 0) {
+        int tw = MeasureCN("--- 准备阶段 ---", 28);
+        DrawRectangle(0, 322, WIN_W, 36, (Color){40,40,60,220});
+        DrawCN("--- 准备阶段 ---", (WIN_W - tw)/2, 324, 28, (Color){200,200,255,255});
+    } else if (gs->turn_phase == 1) {
+        int tw = MeasureCN("--- 摸牌阶段 ---", 28);
+        DrawRectangle(0, 322, WIN_W, 36, (Color){40,50,40,220});
+        DrawCN("--- 摸牌阶段 ---", (WIN_W - tw)/2, 324, 28, (Color){200,255,200,255});
+    }
+
     /* 玩家区 */
     Character* p = &gs->players[0];
     Rectangle pr = player_area_rect();
@@ -694,5 +705,76 @@ void ui_show_card_played(int actor_idx, Card card, int target_idx) {
         g_recent[RECENT_PLAY_MAX - 1].target   = target_idx;
         g_recent[RECENT_PLAY_MAX - 1].card     = card;
         g_recent[RECENT_PLAY_MAX - 1].shown_at = GetTime();
+    }
+}
+
+void ui_get_star_choice(GameState* gs) {
+    if (!gs || !gs->need_star_choice) return;
+    if (!g_window_ready) ui_init();
+
+    int selected = -1;
+    const int count = gs->star_watch_count;
+
+    while (!WindowShouldClose()) {
+        quit_if_window_closed();
+        Vector2 mp = GetMousePosition();
+        int clicked = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+
+        BeginDrawing();
+        ClearBackground((Color){25,25,35,255});
+
+        int title_w = MeasureCN("观  星", 36);
+        DrawCN("观  星", (WIN_W - title_w)/2, 50, 36, GOLD);
+        int tw = MeasureCN("点击两张牌交换位置，排列完成后点确认", 20);
+        DrawCN("点击两张牌交换位置，排列完成后点确认",
+               (WIN_W - tw)/2, 100, 20, LIGHTGRAY);
+
+        int card_w = 140, card_h = 110, gap = 20;
+        int total_w = count * card_w + (count - 1) * gap;
+        int start_x = (WIN_W - total_w) / 2;
+        int y = 180;
+
+        for (int i = 0; i < count; i++) {
+            Rectangle r = {start_x + i * (card_w + gap), y, card_w, card_h};
+            int ci = gs->star_current_slots[i];
+            Color bg = (i == selected) ? (Color){180,120,40,255}
+                     : (CheckCollisionPointRec(mp, r) ? (Color){100,80,60,255}
+                        : (Color){60,50,40,255});
+            DrawRectangleRec(r, bg);
+            DrawRectangleLinesEx(r, 2, (Color){200,160,80,255});
+
+            const char* cname = card_name(gs->star_watch_cards[ci].type);
+            int nw = MeasureCN(cname, 24);
+            DrawCN(cname, (int)r.x + ((int)r.width - nw)/2,
+                          (int)r.y + 20, 24, RAYWHITE);
+            char buf[16];
+            sprintf(buf, "%d", i + 1);
+            DrawCN(buf, (int)r.x + 8, (int)r.y + 60, 18, LIGHTGRAY);
+
+            if (i > 0) {
+                DrawCN("↑↓", (int)r.x - gap, (int)r.y + (int)r.height/2 - 10,
+                       20, (Color){150,150,150,255});
+            }
+
+            if (clicked && CheckCollisionPointRec(mp, r)) {
+                if (selected == -1) {
+                    selected = i;
+                } else if (selected != i) {
+                    game_swap_star_slots(gs, selected, i);
+                    selected = -1;
+                } else {
+                    selected = -1;
+                }
+            }
+        }
+
+        int btn_y = y + card_h + 30;
+        Rectangle confirm_btn = {WIN_W/2 - 80, btn_y, 160, 45};
+        if (draw_button(confirm_btn, "确认排列", 22, 1)) {
+            EndDrawing();
+            break;
+        }
+
+        EndDrawing();
     }
 }

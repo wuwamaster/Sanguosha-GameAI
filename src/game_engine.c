@@ -3,6 +3,12 @@
 #include <string.h>
 #include <stdlib.h>
 
+extern int skill_can_use_sha(GameState* gs, int actor_idx);
+extern int skill_can_convert(GameState* gs, int actor_idx, CardType type);
+extern int skill_watch_stars(GameState* gs, int actor_idx, Card* out_top, int* out_count);
+extern void skill_watch_stars_apply(GameState* gs, Card* new_order, int count);
+extern int skill_empty_city_blocks_sha(GameState* gs, int target_idx);
+
 static void remove_card_from_hand(Character* ch, int index) {
     if (ch == NULL || index < 0 || index >= ch->hand_count) return;
     for (int i = index; i < ch->hand_count - 1; i++) {
@@ -99,7 +105,7 @@ void game_init(GameState* gs, GameMode mode,
     gs->current_turn = 0;
     gs->game_over = 0;
     gs->winner = 0;
-    gs->turn_phase = 2;
+    gs->turn_phase = 0;
     gs->sha_used_this_turn = 0;
     gs->need_shan_response = 0;
     gs->need_discard = 0;
@@ -254,7 +260,8 @@ static int card_target_is_legal(GameState* gs, int actor_idx, CardType type, int
         return target_idx == actor_idx;
     }
     if (type == CARD_SHA) {
-        return target_idx != actor_idx;
+        if (target_idx == actor_idx) return 0;
+        if (skill_empty_city_blocks_sha(gs, target_idx)) return 0;
     }
     return 1;
 }
@@ -271,20 +278,23 @@ int game_get_legal_actions(GameState* gs, int actor_idx, Action* out_actions) {
 
     int count = 0;
     Character* actor = &gs->players[actor_idx];
+    int is_zhaoyun = (actor->hero == HERO_ZHAO_YUN);
 
     for (int i = 0; i < actor->hand_count && count < MAX_HAND; i++) {
         CardType type = actor->hand[i].type;
-        if (type == CARD_SHA) {
+        int can_act_as_sha = (type == CARD_SHA) ||
+            (is_zhaoyun && type == CARD_SHAN);
+
+        if (can_act_as_sha) {
             if (!can_use_more_sha(gs, actor_idx)) continue;
             int found = 0;
             for (int t = 0; t < gs->player_count; t++) {
-                if (card_target_is_legal(gs, actor_idx, type, t)) {
+                if (card_target_is_legal(gs, actor_idx, CARD_SHA, t)) {
                     out_actions[count].action_type = 0;
                     out_actions[count].card_index = i;
                     out_actions[count].target = t;
                     count++;
                     found = 1;
-                    break;
                 }
             }
             if (!found) continue;
@@ -336,15 +346,21 @@ ActionResult game_perform_action(GameState* gs, Action act) {
         if (gs->players[act.target].hp <= 0) return res;
 
         Card card = actor->hand[act.card_index];
+        CardType effective_type = card.type;
 
-        if (!card_target_is_legal(gs, gs->current_turn, card.type, act.target)) return res;
+        if (actor->hero == HERO_ZHAO_YUN) {
+            if (card.type == CARD_SHAN && act.target != gs->current_turn)
+                effective_type = CARD_SHA;
+        }
 
-        if (card.type == CARD_SHA && !can_use_more_sha(gs, gs->current_turn)) return res;
+        if (!card_target_is_legal(gs, gs->current_turn, effective_type, act.target)) return res;
+
+        if (effective_type == CARD_SHA && !can_use_more_sha(gs, gs->current_turn)) return res;
 
         remove_card_from_hand(actor, act.card_index);
         gs->discard_pile[gs->discard_count++] = card;
 
-        if (card.type == CARD_SHA) {
+        if (effective_type == CARD_SHA) {
             gs->sha_used_this_turn++;
             gs->need_shan_response = 1;
             gs->shan_source = gs->current_turn;
@@ -367,12 +383,18 @@ int game_resolve_shan(GameState* gs, int shan_card_idx) {
     Character* target = &gs->players[gs->shan_target];
     int blocked = 0;
 
-    if (shan_card_idx >= 0 && shan_card_idx < target->hand_count &&
-        target->hand[shan_card_idx].type == CARD_SHAN) {
-        remove_card_from_hand(target, shan_card_idx);
-        gs->discard_pile[gs->discard_count++] = (Card){CARD_SHAN, 0};
-        blocked = 1;
+    int is_zhaoyun = (target->hero == HERO_ZHAO_YUN);
+
+    if (shan_card_idx >= 0 && shan_card_idx < target->hand_count) {
+        CardType rt = target->hand[shan_card_idx].type;
+        if (rt == CARD_SHAN || (is_zhaoyun && rt == CARD_SHA)) {
+            Card discard_entry = {rt, 0};
+            remove_card_from_hand(target, shan_card_idx);
+            gs->discard_pile[gs->discard_count++] = discard_entry;
+            blocked = 1;
+        }
     }
+
 
     if (!blocked) {
         apply_card_effect(gs, gs->shan_source,
@@ -410,12 +432,53 @@ static void game_perform_turn_switch(GameState* gs) {
 
     gs->current_turn = next;
     gs->sha_used_this_turn = 0;
-    gs->turn_phase = 2;
+    gs->turn_phase = 0;
+}
 
-    int draw_count = 2;
-    if (gs->mode == MODE_LORD_VS_REBELS && gs->players[next].is_lord)
-        draw_count = 3;
-    draw_card(gs, next, draw_count);
+int game_advance_phase(GameState* gs) {
+    if (gs == NULL) return 0;
+
+    if (gs->turn_phase == 0) {
+        if (gs->players[gs->current_turn].hero == HERO_ZHU_GE_LIANG) {
+            Card top[5];
+            int top_count = 0;
+            skill_watch_stars(gs, gs->current_turn, top, &top_count);
+            if (top_count > 0) {
+                if (!gs->players[gs->current_turn].is_ai) {
+                    gs->need_star_choice = 1;
+                    gs->star_watch_count = top_count;
+                    for (int i = 0; i < top_count; i++) {
+                        gs->star_watch_cards[i] = top[i];
+                        gs->star_current_slots[i] = i;
+                    }
+                    return 0;
+                }
+                for (int i = 0; i < top_count - 1; i++) {
+                    int worst = i;
+                    for (int j = i + 1; j < top_count; j++)
+                        if (top[j].type < top[worst].type)
+                            worst = j;
+                    Card tmp = top[i];
+                    top[i] = top[worst];
+                    top[worst] = tmp;
+                }
+                skill_watch_stars_apply(gs, top, top_count);
+            }
+        }
+        gs->turn_phase = 1;
+        return 1;
+    }
+
+    if (gs->turn_phase == 1) {
+        int draw_count = 2;
+        if (gs->mode == MODE_LORD_VS_REBELS && gs->players[gs->current_turn].is_lord)
+            draw_count = 3;
+        draw_card(gs, gs->current_turn, draw_count);
+        gs->turn_phase = 2;
+        return 1;
+    }
+
+    return 0;
 }
 
 void game_next_turn(GameState* gs) {
@@ -439,6 +502,7 @@ void game_next_turn(GameState* gs) {
 
     gs->need_discard = 0;
     game_perform_turn_switch(gs);
+    while (gs->turn_phase < 2 && !gs->need_star_choice) game_advance_phase(gs);
 }
 
 void game_discard_card(GameState* gs, int card_idx) {
@@ -457,5 +521,28 @@ void game_confirm_discard_done(GameState* gs) {
     if (cur->hand_count <= cur->hp) {
         gs->need_discard = 0;
         game_perform_turn_switch(gs);
+        while (gs->turn_phase < 2 && !gs->need_star_choice) game_advance_phase(gs);
     }
+}
+
+void game_swap_star_slots(GameState* gs, int slot_a, int slot_b) {
+    if (gs == NULL || !gs->need_star_choice) return;
+    if (slot_a < 0 || slot_a >= gs->star_watch_count) return;
+    if (slot_b < 0 || slot_b >= gs->star_watch_count) return;
+    int tmp = gs->star_current_slots[slot_a];
+    gs->star_current_slots[slot_a] = gs->star_current_slots[slot_b];
+    gs->star_current_slots[slot_b] = tmp;
+}
+
+void game_confirm_star_choice(GameState* gs) {
+    if (gs == NULL || !gs->need_star_choice) return;
+
+    Card order[5];
+    for (int i = 0; i < gs->star_watch_count; i++)
+        order[i] = gs->star_watch_cards[gs->star_current_slots[i]];
+
+    skill_watch_stars_apply(gs, order, gs->star_watch_count);
+    gs->need_star_choice = 0;
+    gs->star_watch_count = 0;
+    gs->turn_phase = 1;
 }

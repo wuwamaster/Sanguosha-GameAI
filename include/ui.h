@@ -20,6 +20,8 @@ int ui_get_shan_response(GameState* gs);
 int ui_get_discard_choice(GameState* gs, int remaining);
 void ui_close();
 
+void ui_get_star_choice(GameState* gs);
+
 /* 让 UI 持续刷新 seconds 秒（用于 AI 行动节奏控制、心理气泡可见时间）。
  * raylib 版会保持窗口响应；console 版可空实现或简单 sleep。 */
 void ui_pause(GameState* gs, double seconds);

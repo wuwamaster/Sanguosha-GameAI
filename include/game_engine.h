@@ -94,6 +94,11 @@ typedef struct {
     int shan_target;
 
     int need_discard;
+
+    int need_star_choice;
+    Card star_watch_cards[5];
+    int star_watch_count;
+    int star_current_slots[5];
 } GameState;
 
 typedef struct {
@@ -121,6 +126,22 @@ int game_get_legal_actions(GameState* gs, int actor_idx, Action* out_actions);
 int game_resolve_shan(GameState* gs, int shan_card_idx);
 void game_discard_card(GameState* gs, int card_idx);
 void game_confirm_discard_done(GameState* gs);
+
+int game_advance_phase(GameState* gs);
+void game_swap_star_slots(GameState* gs, int slot_a, int slot_b);
+void game_confirm_star_choice(GameState* gs);
+
+// ---------- 技能接口 ----------
+int skill_can_use_sha(GameState* gs, int actor_idx);
+int skill_can_convert(GameState* gs, int actor_idx, CardType type);
+int skill_watch_stars(GameState* gs, int actor_idx, Card* out_top, int* out_count);
+void skill_watch_stars_apply(GameState* gs, Card* new_order, int count);
+int skill_empty_city_blocks_sha(GameState* gs, int target_idx);
+
+// ---------- Cards 工具接口 ----------
+const char* card_type_name(CardType type);
+int card_is_offensive(CardType type);
+int card_is_defensive(CardType type);
 
 // ---------- 内部辅助函数（供其他Engine内文件调用，不对外）----------
 void draw_card(GameState* gs, int char_idx, int num);

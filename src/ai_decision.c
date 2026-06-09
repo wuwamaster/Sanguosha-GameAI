@@ -165,6 +165,11 @@ Action ai_decide_action(GameState* gs, int ai_idx) {
     if (act.action_type == 1) {
         for (int i = 0; i < action_count; i++) {
             if (actions[i].action_type == 0) {
+                int t = actions[i].target;
+                int ci = actions[i].card_index;
+                if (t < 0 || ci < 0 || ci >= ai->hand_count) continue;
+                CardType ct = ai->hand[ci].type;
+                if (ct == CARD_SHA && !is_enemy(gs, ai_idx, t)) continue;
                 act = actions[i];
                 break;
             }
