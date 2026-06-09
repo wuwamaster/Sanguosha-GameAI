@@ -1,5 +1,6 @@
 #include "game_engine.h"
 #include "ai.h"
+#include "ui.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -269,7 +270,7 @@ int save_dying(GameState* gs, int dying_idx, int start_idx) {
         if (has_tao) {
             /* AI决策：调用AI函数 */
             if (saver->is_ai) {
-                ui_pause(&gs, 0.3);  // AI思考停顿
+                ui_pause(gs, 0.3);  // AI思考停顿
                 use_tao = ai_should_use_tao_to_save(gs, searcher, dying_idx);
             } else {
                 /* 玩家决策：调用UI函数（返回桃的索引，-1表示不救） */
@@ -486,7 +487,6 @@ ActionResult game_perform_action(GameState* gs, Action act) {
         Card card = actor->hand[act.card_index];
         CardType effective_type = card.type;
 
-        // 龙胆：只有明确标记 use_longdan_sha 时才将闪当杀
         if (actor->hero == HERO_ZHAO_YUN && act.use_longdan_sha) {
             if (card.type == CARD_SHAN && act.target != gs->current_turn) {
                 effective_type = CARD_SHA;

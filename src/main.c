@@ -105,7 +105,11 @@ int main() {
                 /* 玩家决策：UI 获取选择 */
                 card_idx = ui_get_shan_response(&gs);
                 use_shan = (card_idx >= 0);
-                /* 玩家赵云：暂时不支持用杀当闪的选择，后续可扩展 */
+                if (card_idx >= 0) {
+                    CardType ct = gs.players[gs.shan_target].hand[card_idx].type;
+                    if (ct == CARD_SHA && gs.players[gs.shan_target].hero == HERO_ZHAO_YUN)
+                        use_sha_as_shan = 1;
+                }
             }
 
             game_resolve_shan(&gs, use_shan ? card_idx : -1, use_sha_as_shan);
