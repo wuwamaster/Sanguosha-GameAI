@@ -33,6 +33,10 @@ int main() {
               mc.player_hero,
               mc.ai_hero[0], mc.ai_person[0],
               mc.ai_hero[1], mc.ai_person[1]);
+    
+    /* 发初始手牌并显示 */
+    game_deal_initial_cards(&gs);
+    ui_show_initial_hand(&gs);
 
     /* ====================================================================
      * 游戏主循环
@@ -48,6 +52,11 @@ int main() {
          * 1. 绘制游戏画面（每帧都绘制）
          * ----------------------------------------------------------- */
         ui_draw_game(&gs);
+        
+        /* -----------------------------------------------------------
+         * 显示游戏事件（闪响应、濒死救人、过河拆桥等）
+         * ----------------------------------------------------------- */
+        ui_show_events(&gs);
 
         /* -----------------------------------------------------------
          * 2. 闪响应决策（回合外）
@@ -61,9 +70,11 @@ int main() {
 
             if (gs.players[gs.shan_target].is_ai) {
                 /* AI 决策：是否出闪，是否用杀当闪（赵云） */
+                ui_pause(&gs, 0.5);  // AI响应前停顿
                 use_shan = ai_decide_shan_response(&gs, gs.shan_target, 
                                                    gs.shan_source, 
                                                    &card_idx, &use_sha_as_shan);
+                ui_pause(&gs, 0.5);  // AI响应后停顿
             } else {
                 /* 玩家决策：UI 获取选择 */
                 card_idx = ui_get_shan_response(&gs);
@@ -85,7 +96,9 @@ int main() {
 
             if (gs.players[gs.current_turn].is_ai) {
                 /* AI 决策：选择弃哪张 */
+                ui_pause(&gs, 0.6);  // AI弃牌前停顿
                 card_idx = ai_decide_discard(&gs, gs.current_turn);
+                ui_pause(&gs, 0.5);  // AI弃牌后停顿
             } else {
                 /* 玩家决策：UI 获取选择 */
                 int excess = gs.players[0].hand_count - gs.players[0].hp;
@@ -112,8 +125,10 @@ int main() {
         if (gs.need_star_choice) {
             if (gs.players[gs.current_turn].is_ai) {
                 /* AI 决策：观星排序 */
+                ui_pause(&gs, 0.8);  // AI观星前停顿
                 ai_decide_star_order(&gs, gs.current_turn,
                                      gs.star_watch_cards, gs.star_watch_count);
+                ui_pause(&gs, 0.5);  // AI观星后停顿
             } else {
                 /* 玩家决策：UI 获取选择 */
                 ui_get_star_choice(&gs);
@@ -141,7 +156,7 @@ int main() {
 
         if (gs.players[gs.current_turn].is_ai) {
             /* AI 决策 */
-            ui_pause(&gs, 0.6);
+            ui_pause(&gs, 0.8);
             act = ai_decide_action(&gs, gs.current_turn);
             
             /* 生成并显示 AI 心理文案 */
@@ -150,7 +165,7 @@ int main() {
                 ai_get_last_psych_message(),
                 ai_get_last_emotion()
             );
-            ui_pause(&gs, 1.0);
+            ui_pause(&gs, 1.5);
         } else {
             /* 玩家决策 */
             act = ui_get_player_action(&gs);

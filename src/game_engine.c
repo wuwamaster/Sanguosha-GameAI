@@ -44,9 +44,8 @@ static void game_init_deck(GameState* gs) {
         gs->draw_pile[gs->pile_count++] = (Card){CARD_WU_ZHONG, gs->pile_count};
 
     game_shuffle_deck(gs->draw_pile, gs->pile_count);
-
-    for (int p = 0; p < gs->player_count; p++)
-        draw_card(gs, p, 4);
+    
+    /* 初始手牌在 game_deal_initial_cards() 中发放 */
 }
 
 static int game_draw_from_pile(GameState* gs) {
@@ -102,13 +101,15 @@ void game_init(GameState* gs, GameMode mode,
     gs->mode = mode;
     gs->player_is_lord = player_is_lord;
     gs->player_count = 3;
-    gs->current_turn = 0;
+    gs->current_turn = 0;  // 临时初始化，后面会根据模式调整
     gs->game_over = 0;
     gs->winner = 0;
     gs->turn_phase = 0;
     gs->sha_used_this_turn = 0;
     gs->need_shan_response = 0;
     gs->need_discard = 0;
+    gs->event_count = 0;
+    gs->event_head = 0;
 
     init_character(&gs->players[0], player_hero, PERSON_CONSERVATIVE, 0,
                    player_is_lord, CAMP_PLAYER);
@@ -141,6 +142,49 @@ void game_init(GameState* gs, GameMode mode,
     }
 
     game_init_deck(gs);
+    
+    /* 根据模式设置先手 */
+    if (mode == MODE_LORD_VS_REBELS) {
+        /* 主公局：从主公开始 */
+        for (int i = 0; i < gs->player_count; i++) {
+            if (gs->players[i].is_lord) {
+                gs->current_turn = i;
+                break;
+            }
+        }
+    } else {
+        /* 单挑模式：随机决定先手 */
+        gs->current_turn = rand() % gs->player_count;
+    }
+    
+    /* 推送游戏开始事件 */
+    game_push_event(gs, EVENT_GAME_START, 0, -1, 0, "=== 游戏开始 ===");
+}
+
+/* 发初始手牌（每人4张） */
+void game_deal_initial_cards(GameState* gs) {
+    if (gs == NULL) return;
+    
+    for (int p = 0; p < gs->player_count; p++) {
+        for (int i = 0; i < 4; i++) {
+            if (gs->pile_count > 0) {
+                gs->players[p].hand[gs->players[p].hand_count++] = 
+                    gs->draw_pile[--gs->pile_count];
+            }
+        }
+        /* 推送发牌事件 */
+        const char* who = (p == 0) ? "玩家" : (p == 1) ? "AI1" : "AI2";
+        char msg[128];
+        snprintf(msg, sizeof(msg), "%s 获得 4 张初始手牌", who);
+        game_push_event(gs, EVENT_TURN_START, p, -1, 0, msg);
+    }
+    
+    /* 推送回合开始事件 */
+    const char* first = (gs->current_turn == 0) ? "玩家" : 
+                        (gs->current_turn == 1) ? "AI1" : "AI2";
+    char msg[128];
+    snprintf(msg, sizeof(msg), "由 %s 开始回合", first);
+    game_push_event(gs, EVENT_TURN_START, gs->current_turn, -1, 0, msg);
 }
 
 static void game_check_death(GameState* gs, int idx) {
@@ -149,6 +193,12 @@ static void game_check_death(GameState* gs, int idx) {
 
     save_dying(gs, idx, gs->current_turn);
     if (gs->players[idx].hp <= 0) {
+        /* 推送死亡事件 */
+        const char* who = (idx == 0) ? "玩家" : (idx == 1) ? "AI1" : "AI2";
+        char msg[128];
+        snprintf(msg, sizeof(msg), "%s 阵亡！", who);
+        game_push_event(gs, EVENT_DEATH, idx, -1, 0, msg);
+        
         if (gs->mode == MODE_SINGLE) {
             gs->game_over = 1;
             gs->winner = gs->players[idx].camp == CAMP_PLAYER ? 1 : 0;
@@ -189,12 +239,25 @@ int save_dying(GameState* gs, int dying_idx, int start_idx) {
     if (gs->players[dying_idx].hp > 0) return 1;
 
     int saved = 0;
+    
+    /* 获取濒死角色名字 */
+    const char* dying_name = (dying_idx == 0) ? "玩家" : 
+                             (dying_idx == 1) ? "AI1" : "AI2";
+    
+    /* 推送濒死事件 */
+    char dying_msg[128];
+    snprintf(dying_msg, sizeof(dying_msg), "%s 处于濒死状态！", dying_name);
+    game_push_event(gs, EVENT_TAO_SAVE, dying_idx, -1, CARD_TAO, dying_msg);
+
+    /* 按顺序轮询每个人是否救 */
     for (int tries = 0; tries < gs->player_count && gs->players[dying_idx].hp <= 0; tries++) {
         int searcher = (start_idx + tries) % gs->player_count;
 
         int has_tao = 0;
         int tao_idx = -1;
         Character* saver = &gs->players[searcher];
+        
+        /* 查找是否有桃 */
         for (int i = 0; i < saver->hand_count; i++) {
             if (saver->hand[i].type == CARD_TAO) {
                 has_tao = 1;
@@ -205,10 +268,13 @@ int save_dying(GameState* gs, int dying_idx, int start_idx) {
 
         int use_tao = 0;
         if (has_tao) {
+            /* AI决策：调用AI函数 */
             if (saver->is_ai) {
+                ui_pause(&gs, 0.3);  // AI思考停顿
                 use_tao = ai_should_use_tao_to_save(gs, searcher, dying_idx);
             } else {
-                use_tao = 1;
+                /* 玩家决策：调用UI函数 */
+                use_tao = ui_get_tao_save_choice(gs, dying_idx);
             }
         }
 
@@ -217,6 +283,13 @@ int save_dying(GameState* gs, int dying_idx, int start_idx) {
             gs->discard_pile[gs->discard_count++] = (Card){CARD_TAO, 0};
             gs->players[dying_idx].hp++;
             saved = 1;
+
+            /* 推送濒死救人事件 */
+            char msg[128];
+            const char* saver_name = (searcher == 0) ? "玩家" : 
+                                     (searcher == 1) ? "AI1" : "AI2";
+            snprintf(msg, sizeof(msg), "%s 用【桃】救活了 %s！", saver_name, dying_name);
+            game_push_event(gs, EVENT_TAO_SAVE, searcher, dying_idx, CARD_TAO, msg);
         }
     }
 
@@ -232,7 +305,14 @@ void apply_card_effect(GameState* gs, int user_idx, Card card, int target_idx) {
     Character* target = &gs->players[target_idx];
     switch (card.type) {
         case CARD_SHA:
-            if (target->hp > 0) target->hp -= 1;
+            if (target->hp > 0) {
+                target->hp -= 1;
+                /* 推送受到伤害事件 */
+                const char* target_name = (target_idx == 0) ? "玩家" : (target_idx == 1) ? "AI1" : "AI2";
+                char msg[128];
+                snprintf(msg, sizeof(msg), "%s 受到 1 点伤害", target_name);
+                game_push_event(gs, EVENT_DMG_TAKEN, target_idx, -1, CARD_SHA, msg);
+            }
             game_check_death(gs, target_idx);
             break;
         case CARD_TAO:
@@ -240,8 +320,28 @@ void apply_card_effect(GameState* gs, int user_idx, Card card, int target_idx) {
             if (target->hp > target->max_hp) target->hp = target->max_hp;
             break;
         case CARD_GUO_CAI:
-            if (target->hand_count > 0)
+            if (target->hand_count > 0) {
+                /* 记录被拆掉的牌类型 */
+                CardType removed_type = target->hand[0].type;
                 remove_card_from_hand(target, 0);
+
+                /* 推送过河拆桥事件 */
+                char msg[128];
+                const char* user_name = (user_idx == 0) ? "玩家" : "AI";
+                const char* target_name = (target_idx == 0) ? "玩家" : "AI";
+                const char* card_name = "";
+                switch (removed_type) {
+                    case CARD_SHA:    card_name = "杀"; break;
+                    case CARD_SHAN:   card_name = "闪"; break;
+                    case CARD_TAO:    card_name = "桃"; break;
+                    case CARD_GUO_CAI: card_name = "过河拆桥"; break;
+                    case CARD_WU_ZHONG: card_name = "无中生有"; break;
+                    default:          card_name = "未知";
+                }
+                snprintf(msg, sizeof(msg), "%s 对 %s 使用【过河拆桥】，拆掉了【%s】！",
+                         user_name, target_name, card_name);
+                game_push_event(gs, EVENT_DISMANTLE, user_idx, target_idx, removed_type, msg);
+            }
             break;
         case CARD_WU_ZHONG:
             draw_card(gs, target_idx, 2);
@@ -353,6 +453,12 @@ ActionResult game_perform_action(GameState* gs, Action act) {
     if (gs == NULL) return res;
 
     if (act.action_type == 1) {
+        /* 推送回合结束事件 */
+        const char* who = (gs->current_turn == 0) ? "玩家" : (gs->current_turn == 1) ? "AI1" : "AI2";
+        char msg[128];
+        snprintf(msg, sizeof(msg), "%s 结束回合", who);
+        game_push_event(gs, EVENT_TURN_END, gs->current_turn, -1, 0, msg);
+        
         gs->turn_phase = 4;
         res.success = 1;
         res.game_over = gs->game_over;
@@ -373,8 +479,14 @@ ActionResult game_perform_action(GameState* gs, Action act) {
 
         // 龙胆：只有明确标记 use_longdan_sha 时才将闪当杀
         if (actor->hero == HERO_ZHAO_YUN && act.use_longdan_sha) {
-            if (card.type == CARD_SHAN && act.target != gs->current_turn)
+            if (card.type == CARD_SHAN && act.target != gs->current_turn) {
                 effective_type = CARD_SHA;
+                /* 推送技能触发事件 */
+                const char* who = (gs->current_turn == 0) ? "玩家" : (gs->current_turn == 1) ? "AI1" : "AI2";
+                char msg[128];
+                snprintf(msg, sizeof(msg), "%s 发动【龙胆】，用【闪】当【杀】", who);
+                game_push_event(gs, EVENT_SKILL_USED, gs->current_turn, -1, card.type, msg);
+            }
         }
 
         if (!card_target_is_legal(gs, gs->current_turn, effective_type, act.target)) return res;
@@ -389,8 +501,34 @@ ActionResult game_perform_action(GameState* gs, Action act) {
             gs->need_shan_response = 1;
             gs->shan_source = gs->current_turn;
             gs->shan_target = act.target;
+            
+            /* 推送出牌事件 */
+            const char* who = (gs->current_turn == 0) ? "玩家" : (gs->current_turn == 1) ? "AI1" : "AI2";
+            const char* tgt = (act.target == 0) ? "玩家" : (act.target == 1) ? "AI1" : "AI2";
+            char msg[128];
+            snprintf(msg, sizeof(msg), "%s 对 %s 使用【杀】", who, tgt);
+            game_push_event(gs, EVENT_CARD_PLAYED, gs->current_turn, act.target, CARD_SHA, msg);
+            
             res.success = 1;
         } else {
+            /* 推送出牌事件 */
+            const char* who = (gs->current_turn == 0) ? "玩家" : (gs->current_turn == 1) ? "AI1" : "AI2";
+            const char* tgt = (act.target == 0) ? "玩家" : (act.target == 1) ? "AI1" : "AI2";
+            const char* card_name = "";
+            switch (card.type) {
+                case CARD_TAO: card_name = "桃"; break;
+                case CARD_GUO_CAI: card_name = "过河拆桥"; break;
+                case CARD_WU_ZHONG: card_name = "无中生有"; break;
+                default: card_name = "?";
+            }
+            char msg[128];
+            if (card.type == CARD_TAO) {
+                snprintf(msg, sizeof(msg), "%s 使用【%s】", who, card_name);
+            } else {
+                snprintf(msg, sizeof(msg), "%s 对 %s 使用【%s】", who, tgt, card_name);
+            }
+            game_push_event(gs, EVENT_CARD_PLAYED, gs->current_turn, act.target, card.type, msg);
+            
             apply_card_effect(gs, gs->current_turn, card, act.target);
             res.success = 1;
         }
@@ -432,6 +570,21 @@ int game_resolve_shan(GameState* gs, int shan_card_idx, int use_sha_as_shan) {
                           (Card){CARD_SHA, 0}, gs->shan_target);
     }
 
+    /* 推送闪响应事件 */
+    char msg[128];
+    const char* target_name = (gs->shan_target == 0) ? "玩家" : "AI";
+    if (blocked) {
+        if (use_sha_as_shan) {
+            snprintf(msg, sizeof(msg), "%s 用【杀】当【闪】响应！", target_name);
+        } else {
+            snprintf(msg, sizeof(msg), "%s 打出【闪】！", target_name);
+        }
+    } else {
+        snprintf(msg, sizeof(msg), "%s 没有出闪！", target_name);
+    }
+    game_push_event(gs, EVENT_SHAN_RESPONSE, gs->shan_target, gs->shan_source,
+                    blocked ? (use_sha_as_shan ? CARD_SHA : CARD_SHAN) : 0, msg);
+
     gs->need_shan_response = 0;
     gs->shan_source = -1;
     gs->shan_target = -1;
@@ -464,6 +617,12 @@ static void game_perform_turn_switch(GameState* gs) {
     gs->current_turn = next;
     gs->sha_used_this_turn = 0;
     gs->turn_phase = 0;
+    
+    /* 推送回合开始事件 */
+    char msg[128];
+    const char* who = (next == 0) ? "玩家" : (next == 1) ? "AI1" : "AI2";
+    snprintf(msg, sizeof(msg), "--- %s 的回合 ---", who);
+    game_push_event(gs, EVENT_TURN_START, next, -1, 0, msg);
 }
 
 int game_advance_phase(GameState* gs) {
@@ -475,6 +634,12 @@ int game_advance_phase(GameState* gs) {
             int top_count = 0;
             skill_watch_stars(gs, gs->current_turn, top, &top_count);
             if (top_count > 0) {
+                /* 推送技能触发事件 */
+                const char* who = (gs->current_turn == 0) ? "玩家" : (gs->current_turn == 1) ? "AI1" : "AI2";
+                char msg[128];
+                snprintf(msg, sizeof(msg), "%s 发动【观星】，观看 %d 张牌", who, top_count);
+                game_push_event(gs, EVENT_SKILL_USED, gs->current_turn, -1, 0, msg);
+                
                 if (!gs->players[gs->current_turn].is_ai) {
                     gs->need_star_choice = 1;
                     gs->star_watch_count = top_count;
@@ -497,6 +662,7 @@ int game_advance_phase(GameState* gs) {
             }
         }
         gs->turn_phase = 1;
+        game_push_event(gs, EVENT_PHASE_CHANGE, gs->current_turn, -1, 0, "进入摸牌阶段");
         return 1;
     }
 
@@ -505,7 +671,15 @@ int game_advance_phase(GameState* gs) {
         if (gs->mode == MODE_LORD_VS_REBELS && gs->players[gs->current_turn].is_lord)
             draw_count = 3;
         draw_card(gs, gs->current_turn, draw_count);
+        
+        /* 推送摸牌事件 */
+        char msg[128];
+        const char* who = (gs->current_turn == 0) ? "玩家" : (gs->current_turn == 1) ? "AI1" : "AI2";
+        snprintf(msg, sizeof(msg), "%s 摸了 %d 张牌", who, draw_count);
+        game_push_event(gs, EVENT_DRAW_CARDS, gs->current_turn, -1, 0, msg);
+        
         gs->turn_phase = 2;
+        game_push_event(gs, EVENT_PHASE_CHANGE, gs->current_turn, -1, 0, "进入出牌阶段");
         return 1;
     }
 
@@ -522,8 +696,15 @@ void game_next_turn(GameState* gs) {
         if (!cur->is_ai) {
             gs->need_discard = 1;
             gs->turn_phase = 3;
+            game_push_event(gs, EVENT_PHASE_CHANGE, gs->current_turn, -1, 0, "进入弃牌阶段");
             return;
         } else {
+            /* AI弃牌 */
+            const char* who = (gs->current_turn == 0) ? "玩家" : (gs->current_turn == 1) ? "AI1" : "AI2";
+            char msg[128];
+            snprintf(msg, sizeof(msg), "%s 弃牌 %d 张", who, excess);
+            game_push_event(gs, EVENT_PHASE_CHANGE, gs->current_turn, -1, 0, msg);
+            
             for (int i = 0; i < excess && cur->hand_count > 0; i++) {
                 gs->discard_pile[gs->discard_count++] = cur->hand[0];
                 remove_card_from_hand(cur, 0);
@@ -576,4 +757,74 @@ void game_confirm_star_choice(GameState* gs) {
     gs->need_star_choice = 0;
     gs->star_watch_count = 0;
     gs->turn_phase = 1;
+}
+
+/* ========================================================================
+ * 事件系统实现
+ * ======================================================================== */
+
+void game_push_event(GameState* gs, GameEventType type, int actor,
+                     int target, CardType card_type, const char* message) {
+    if (gs == NULL || message == NULL) return;
+
+    int idx = (gs->event_head + gs->event_count) % MAX_EVENTS;
+    gs->events[idx].type = type;
+    gs->events[idx].actor = actor;
+    gs->events[idx].target = target;
+    gs->events[idx].card_type = card_type;
+    strncpy(gs->events[idx].message, message, sizeof(gs->events[idx].message) - 1);
+    gs->events[idx].message[sizeof(gs->events[idx].message) - 1] = '\0';
+    gs->events[idx].shown_at = -1.0;  // -1 表示还未显示
+
+    if (gs->event_count < MAX_EVENTS) {
+        gs->event_count++;
+    } else {
+        gs->event_head = (gs->event_head + 1) % MAX_EVENTS;
+    }
+}
+
+void game_clear_events(GameState* gs) {
+    if (gs == NULL) return;
+    gs->event_count = 0;
+    gs->event_head = 0;
+}
+
+void game_clear_expired_events(GameState* gs, double now) {
+    if (gs == NULL) return;
+
+    int i = 0;
+    while (i < gs->event_count) {
+        int idx = (gs->event_head + i) % MAX_EVENTS;
+        GameEvent* evt = &gs->events[idx];
+        
+        /* 跳过还未显示的事件 */
+        if (evt->shown_at < 0) {
+            i++;
+            continue;
+        }
+
+        /* 检查是否过期（显示超过3秒） */
+        double age = now - evt->shown_at;
+        if (age > EVENT_VISIBLE_SEC) {
+            /* 移除这个事件 */
+            for (int j = i; j < gs->event_count - 1; j++) {
+                int src = (gs->event_head + j + 1) % MAX_EVENTS;
+                int dst = (gs->event_head + j) % MAX_EVENTS;
+                gs->events[dst] = gs->events[src];
+            }
+            gs->event_count--;
+        } else {
+            i++;
+        }
+    }
+}
+
+int game_get_event_count(GameState* gs) {
+    return (gs == NULL) ? 0 : gs->event_count;
+}
+
+GameEvent* game_get_event(GameState* gs, int index) {
+    if (gs == NULL || index < 0 || index >= gs->event_count) return NULL;
+    int idx = (gs->event_head + index) % MAX_EVENTS;
+    return &gs->events[idx];
 }

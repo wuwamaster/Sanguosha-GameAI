@@ -36,6 +36,9 @@ static RecentPlay g_recent[RECENT_PLAY_MAX];
 static int        g_recent_count = 0;
 #define RECENT_VISIBLE_SEC 2.5
 
+/* ---------- 事件日志 ---------- */
+static void draw_events(GameState* gs);
+
 /* ---------- 名称辅助 ---------- */
 static const char* hero_name(HeroType h) {
     switch (h) {
@@ -308,6 +311,9 @@ static void draw_scene(GameState* gs, int selected_card, const char* hint) {
             g_psych_msg[0] = '\0';   /* 超时主动清空，避免残留 */
         }
     }
+
+    /* 事件日志 */
+    draw_events(gs);
 }
 
 /* ============================================================
@@ -726,6 +732,195 @@ void ui_show_card_played(int actor_idx, Card card, int target_idx) {
         g_recent[RECENT_PLAY_MAX - 1].card     = card;
         g_recent[RECENT_PLAY_MAX - 1].shown_at = GetTime();
     }
+}
+
+/* 事件显示行数 */
+#define EVENT_DISPLAY_LINES 4
+
+/* 内部函数：绘制事件日志 */
+static void draw_events(GameState* gs) {
+    if (!gs) return;
+
+    int count = game_get_event_count(gs);
+    if (count == 0) return;
+
+    /* 固定显示最新的4条事件 */
+    const int log_y = WIN_H - 195;  /* 调高三行 */
+    const int line_height = 25;
+    int start = (count > EVENT_DISPLAY_LINES) ? (count - EVENT_DISPLAY_LINES) : 0;
+    int display_count = (count > EVENT_DISPLAY_LINES) ? EVENT_DISPLAY_LINES : count;
+
+    for (int i = 0; i < display_count; i++) {
+        GameEvent* evt = game_get_event(gs, start + i);
+        if (!evt) continue;
+
+        int y = log_y + i * line_height;
+
+        /* 根据事件类型选择颜色 */
+        Color color = WHITE;
+        switch (evt->type) {
+            case EVENT_GAME_START:
+                color = GOLD;
+                break;
+            case EVENT_TURN_START:
+            case EVENT_TURN_END:
+                color = YELLOW;
+                break;
+            case EVENT_PHASE_CHANGE:
+                color = LIGHTGRAY;
+                break;
+            case EVENT_DRAW_CARDS:
+                color = SKYBLUE;
+                break;
+            case EVENT_CARD_PLAYED:
+                color = RAYWHITE;
+                break;
+            case EVENT_SHAN_RESPONSE:
+                color = (evt->card_type == CARD_SHAN || evt->card_type == CARD_SHA) ? SKYBLUE : GRAY;
+                break;
+            case EVENT_TAO_SAVE:
+                color = GREEN;
+                break;
+            case EVENT_DISMANTLE:
+                color = ORANGE;
+                break;
+            case EVENT_DMG_TAKEN:
+                color = RED;
+                break;
+            case EVENT_DEATH:
+                color = DARKPURPLE;
+                break;
+            case EVENT_SKILL_USED:
+                color = PURPLE;
+                break;
+            default:
+                color = WHITE;
+        }
+
+        /* 右侧对齐显示 */
+        int text_width = MeasureCN(evt->message, 18);
+        DrawCN(evt->message, WIN_W - text_width - 20, y, 18, color);
+    }
+}
+
+void ui_show_events(GameState* gs) {
+    /* 事件现在在 ui_draw_game 中绘制，此函数保留为空以保持接口兼容 */
+    (void)gs;
+}
+
+/* 显示初始手牌界面（简化版） */
+void ui_show_initial_hand(GameState* gs) {
+    if (!gs) return;
+    if (!g_window_ready) ui_init();
+    
+    /* 获取先手角色名 */
+    const char* first = (gs->current_turn == 0) ? "你" : 
+                        (gs->current_turn == 1) ? "AI1" : "AI2";
+    
+    while (!WindowShouldClose()) {
+        quit_if_window_closed();
+        Vector2 mp = GetMousePosition();
+        int clicked = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+        
+        BeginDrawing();
+        ClearBackground((Color){20,20,30,255});
+        
+        /* 标题 */
+        int title_w = MeasureCN("游戏开始", 48);
+        DrawCN("游戏开始", (WIN_W - title_w)/2, 120, 48, GOLD);
+        
+        /* 提示信息1 */
+        int tip1_w = MeasureCN("各角色已获得初始手牌", 24);
+        DrawCN("各角色已获得初始手牌", (WIN_W - tip1_w)/2, 260, 24, LIGHTGRAY);
+        
+        /* 提示信息2 */
+        char tip2[64];
+        snprintf(tip2, sizeof(tip2), "由 %s 开始回合", first);
+        int tip2_w = MeasureCN(tip2, 28);
+        DrawCN(tip2, (WIN_W - tip2_w)/2, 320, 28, RAYWHITE);
+        
+        /* 确认按钮 */
+        Rectangle btn = {WIN_W/2 - 100, WIN_H - 150, 200, 55};
+        int hover = CheckCollisionPointRec(mp, btn);
+        Color btn_color = hover ? (Color){180,130,50,255} : (Color){100,80,50,255};
+        DrawRectangleRec(btn, btn_color);
+        DrawRectangleLinesEx(btn, 3, hover ? GOLD : (Color){200,160,80,255});
+        
+        int btn_text_w = MeasureCN("开始游戏", 28);
+        DrawCN("开始游戏", (int)btn.x + ((int)btn.width - btn_text_w)/2,
+               (int)btn.y + 14, 28, RAYWHITE);
+        
+        EndDrawing();
+        
+        /* 点击确认或等待1.5秒后自动进入 */
+        static double start_time = 0;
+        if (start_time == 0) start_time = GetTime();
+        
+        if ((clicked && CheckCollisionPointRec(mp, btn)) || 
+            (GetTime() - start_time > 1.5)) {
+            break;
+        }
+    }
+}
+
+/* 获取玩家是否使用桃救人的选择 */
+int ui_get_tao_save_choice(GameState* gs, int dying_idx) {
+    if (!gs || dying_idx < 0 || dying_idx >= gs->player_count) return 0;
+    if (!g_window_ready) ui_init();
+    
+    const char* dying_name = (dying_idx == 0) ? "你" : 
+                            (dying_idx == 1) ? "AI1" : "AI2";
+    
+    while (!WindowShouldClose()) {
+        quit_if_window_closed();
+        Vector2 mp = GetMousePosition();
+        int clicked = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+        
+        BeginDrawing();
+        ClearBackground((Color){25,25,35,255});
+        
+        /* 标题 */
+        int title_w = MeasureCN("濒死求桃", 42);
+        DrawCN("濒死求桃", (WIN_W - title_w)/2, 80, 42, RED);
+        
+        /* 提示信息 */
+        char msg[128];
+        snprintf(msg, sizeof(msg), "%s 处于濒死状态，是否使用【桃】救他？", dying_name);
+        int msg_w = MeasureCN(msg, 26);
+        DrawCN(msg, (WIN_W - msg_w)/2, 200, 26, RAYWHITE);
+        
+        /* 按钮区域 */
+        Rectangle yes_btn = {WIN_W/2 - 140, WIN_H - 120, 120, 55};
+        Rectangle no_btn = {WIN_W/2 + 20, WIN_H - 120, 120, 55};
+        
+        int yes_hover = CheckCollisionPointRec(mp, yes_btn);
+        int no_hover = CheckCollisionPointRec(mp, no_btn);
+        
+        /* 是按钮 */
+        Color yes_color = yes_hover ? (Color){80,180,80,255} : (Color){60,120,60,255};
+        DrawRectangleRec(yes_btn, yes_color);
+        DrawRectangleLinesEx(yes_btn, 2, (Color){100,220,100,255});
+        int yes_w = MeasureCN("使用桃", 24);
+        DrawCN("使用桃", (int)yes_btn.x + ((int)yes_btn.width - yes_w)/2,
+               (int)yes_btn.y + 15, 24, RAYWHITE);
+        
+        /* 否按钮 */
+        Color no_color = no_hover ? (Color){180,80,80,255} : (Color){120,60,60,255};
+        DrawRectangleRec(no_btn, no_color);
+        DrawRectangleLinesEx(no_btn, 2, (Color){220,100,100,255});
+        int no_w = MeasureCN("不救", 24);
+        DrawCN("不救", (int)no_btn.x + ((int)no_btn.width - no_w)/2,
+               (int)no_btn.y + 15, 24, RAYWHITE);
+        
+        EndDrawing();
+        
+        if (clicked) {
+            if (CheckCollisionPointRec(mp, yes_btn)) return 1;
+            if (CheckCollisionPointRec(mp, no_btn)) return 0;
+        }
+    }
+    
+    return 0;  // 默认不救
 }
 
 void ui_get_star_choice(GameState* gs) {

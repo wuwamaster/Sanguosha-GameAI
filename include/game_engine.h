@@ -31,6 +31,34 @@ typedef enum {
     PERSON_GAMBLER
 } Personality;
 
+// ---------- 游戏事件系统 ----------
+typedef enum {
+    EVENT_GAME_START,       // 游戏开始
+    EVENT_TURN_START,       // 回合开始
+    EVENT_PHASE_CHANGE,     // 阶段变化
+    EVENT_TURN_END,         // 回合结束
+    EVENT_DRAW_CARDS,       // 摸牌
+    EVENT_CARD_PLAYED,      // 出牌
+    EVENT_SHAN_RESPONSE,    // 闪响应
+    EVENT_TAO_SAVE,         // 濒死救人
+    EVENT_DISMANTLE,        // 过河拆桥
+    EVENT_DMG_TAKEN,        // 受到伤害
+    EVENT_DEATH,            // 死亡
+    EVENT_SKILL_USED        // 技能触发
+} GameEventType;
+
+typedef struct {
+    GameEventType type;
+    int actor;              // 行动者索引
+    int target;             // 目标索引（-1表示无）
+    CardType card_type;     // 涉及的牌类型（CARD_SHA等）
+    char message[128];      // 显示消息
+    double shown_at;        // 首次显示时间（用于控制显示时长）
+} GameEvent;
+
+#define MAX_EVENTS 10       // 最大事件日志数
+#define EVENT_VISIBLE_SEC 3.0  // 事件显示时长（秒）
+
 
 // AI人格权重参数（从personalities.txt读取）
 typedef struct {
@@ -99,6 +127,11 @@ typedef struct {
     Card star_watch_cards[5];
     int star_watch_count;
     int star_current_slots[5];
+
+    // ---------- 事件日志 ----------
+    GameEvent events[MAX_EVENTS];
+    int event_count;       // 当前事件数
+    int event_head;        // 环形缓冲区头指针
 } GameState;
 
 typedef struct {
@@ -121,6 +154,7 @@ void game_init(GameState* gs, GameMode mode,
                HeroType player_hero,
                HeroType ai_hero1, Personality ai_person1,
                HeroType ai_hero2, Personality ai_person2);
+void game_deal_initial_cards(GameState* gs);  // 发初始手牌
 ActionResult game_perform_action(GameState* gs, Action act);
 int game_is_turn_over(GameState* gs);
 void game_next_turn(GameState* gs);
@@ -132,6 +166,14 @@ void game_confirm_discard_done(GameState* gs);
 int game_advance_phase(GameState* gs);
 void game_swap_star_slots(GameState* gs, int slot_a, int slot_b);
 void game_confirm_star_choice(GameState* gs);
+
+// ---------- 事件系统接口 ----------
+void game_push_event(GameState* gs, GameEventType type, int actor, 
+                     int target, CardType card_type, const char* message);
+void game_clear_events(GameState* gs);
+void game_clear_expired_events(GameState* gs, double now);
+int game_get_event_count(GameState* gs);
+GameEvent* game_get_event(GameState* gs, int index);
 
 // ---------- 技能接口 ----------
 int skill_can_use_sha(GameState* gs, int actor_idx);

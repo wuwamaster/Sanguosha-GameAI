@@ -30,6 +30,15 @@ void ui_pause(GameState* gs, double seconds);
  * 主循环在 game_perform_action 之前调用。 */
 void ui_show_card_played(int actor_idx, Card card, int target_idx);
 
+/* 显示游戏事件（闪响应、濒死救人、过河拆桥等） */
+void ui_show_events(GameState* gs);
+
+/* 显示初始手牌界面 */
+void ui_show_initial_hand(GameState* gs);
+
+/* 获取玩家是否使用桃救人的选择 */
+int ui_get_tao_save_choice(GameState* gs, int dying_idx);
+
 /* 主菜单：玩家选择模式、武将、阵营。返回 1 确认，0 表示用户取消/关窗。
  * 调用前可先 ui_init()，也可不 init（函数会自行 ui_init）。 */
 int ui_show_menu(MenuChoice* out);
