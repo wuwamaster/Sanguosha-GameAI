@@ -12,23 +12,24 @@ TEST_SRC = $(filter-out $(SRC_DIR)/main.c,$(filter-out $(SRC_DIR)/ui_raylib.c,$(
 OBJECTS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(MAIN_SOURCES))
 TEST_TARGETS = $(patsubst tests/%.c,tests/%.exe,$(TEST_SOURCES))
 
-all: $(TARGET)
+all: dirs $(TARGET)
 
-test: $(TEST_TARGETS)
+test: dirs $(TEST_TARGETS)
 
-$(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)
+dirs:
+	if not exist $(BUILD_DIR) mkdir $(BUILD_DIR)
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | dirs
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET): $(OBJECTS)
 	$(CC) $^ $(LDFLAGS) -o $@
 
-tests/%.exe: tests/%.c
+tests/%.exe: tests/%.c | dirs
 	$(CC) $(CFLAGS) $< $(TEST_SRC) -o $@
 
 clean:
-	rm -rf $(BUILD_DIR) $(TARGET) tests/*.exe
+	del /F /Q $(TARGET) tests\*.exe 2>nul
+	rd /S /Q $(BUILD_DIR) 2>nul
 
-.PHONY: all clean test
+.PHONY: all clean test dirs

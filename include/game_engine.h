@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -105,6 +105,8 @@ typedef struct {
     int action_type;       // 0:出牌, 1:结束回合
     int card_index;        // 手牌索引（出牌时使用）
     int target;            // 目标角色索引 (-1表示无目标)
+    int use_longdan_sha;   // 龙胆：出闪时，是否用闪当杀（仅赵云）
+    int use_longdan_shan;  // 龙胆：被杀时，是否用杀当闪（仅赵云，0=不出杀挡，1=用杀挡）
 } Action;
 
 typedef struct {
@@ -123,7 +125,7 @@ ActionResult game_perform_action(GameState* gs, Action act);
 int game_is_turn_over(GameState* gs);
 void game_next_turn(GameState* gs);
 int game_get_legal_actions(GameState* gs, int actor_idx, Action* out_actions);
-int game_resolve_shan(GameState* gs, int shan_card_idx);
+int game_resolve_shan(GameState* gs, int shan_card_idx, int use_sha_as_shan);
 void game_discard_card(GameState* gs, int card_idx);
 void game_confirm_discard_done(GameState* gs);
 

@@ -282,17 +282,31 @@ int game_get_legal_actions(GameState* gs, int actor_idx, Action* out_actions) {
 
     for (int i = 0; i < actor->hand_count && count < MAX_HAND; i++) {
         CardType type = actor->hand[i].type;
-        int can_act_as_sha = (type == CARD_SHA) ||
-            (is_zhaoyun && type == CARD_SHAN);
+        int is_sha = (type == CARD_SHA);
+        int is_shan = (type == CARD_SHAN);
 
-        if (can_act_as_sha) {
+        // 可作为杀使用的情况
+        if (is_sha || (is_zhaoyun && is_shan)) {
             if (!can_use_more_sha(gs, actor_idx)) continue;
+
+            // 为每个合法目标生成动作
             int found = 0;
             for (int t = 0; t < gs->player_count; t++) {
                 if (card_target_is_legal(gs, actor_idx, CARD_SHA, t)) {
                     out_actions[count].action_type = 0;
                     out_actions[count].card_index = i;
                     out_actions[count].target = t;
+
+                    // 龙胆特殊标记
+                    if (is_zhaoyun && is_shan) {
+                        // 闪当杀：use_longdan_sha = 1
+                        out_actions[count].use_longdan_sha = 1;
+                    } else {
+                        // 普通杀：use_longdan_sha = 0
+                        out_actions[count].use_longdan_sha = 0;
+                    }
+                    out_actions[count].use_longdan_shan = 0;
+
                     count++;
                     found = 1;
                 }
@@ -303,6 +317,8 @@ int game_get_legal_actions(GameState* gs, int actor_idx, Action* out_actions) {
                 out_actions[count].action_type = 0;
                 out_actions[count].card_index = i;
                 out_actions[count].target = actor_idx;
+                out_actions[count].use_longdan_sha = 0;
+                out_actions[count].use_longdan_shan = 0;
                 count++;
             }
         } else {
@@ -311,6 +327,8 @@ int game_get_legal_actions(GameState* gs, int actor_idx, Action* out_actions) {
                     out_actions[count].action_type = 0;
                     out_actions[count].card_index = i;
                     out_actions[count].target = t;
+                    out_actions[count].use_longdan_sha = 0;
+                    out_actions[count].use_longdan_shan = 0;
                     count++;
                 }
             }
@@ -320,6 +338,8 @@ int game_get_legal_actions(GameState* gs, int actor_idx, Action* out_actions) {
     out_actions[count].action_type = 1;
     out_actions[count].card_index = -1;
     out_actions[count].target = -1;
+    out_actions[count].use_longdan_sha = 0;
+    out_actions[count].use_longdan_shan = 0;
     count++;
 
     return count;
@@ -348,7 +368,8 @@ ActionResult game_perform_action(GameState* gs, Action act) {
         Card card = actor->hand[act.card_index];
         CardType effective_type = card.type;
 
-        if (actor->hero == HERO_ZHAO_YUN) {
+        // 龙胆：只有明确标记 use_longdan_sha 时才将闪当杀
+        if (actor->hero == HERO_ZHAO_YUN && act.use_longdan_sha) {
             if (card.type == CARD_SHAN && act.target != gs->current_turn)
                 effective_type = CARD_SHA;
         }
@@ -377,7 +398,7 @@ ActionResult game_perform_action(GameState* gs, Action act) {
     return res;
 }
 
-int game_resolve_shan(GameState* gs, int shan_card_idx) {
+int game_resolve_shan(GameState* gs, int shan_card_idx, int use_sha_as_shan) {
     if (gs == NULL || !gs->need_shan_response) return 0;
 
     Character* target = &gs->players[gs->shan_target];
@@ -387,7 +408,14 @@ int game_resolve_shan(GameState* gs, int shan_card_idx) {
 
     if (shan_card_idx >= 0 && shan_card_idx < target->hand_count) {
         CardType rt = target->hand[shan_card_idx].type;
-        if (rt == CARD_SHAN || (is_zhaoyun && rt == CARD_SHA)) {
+
+        // 检查是否能用这张牌响应
+        // - 闪可以直接用
+        // - 赵云可以用杀当闪（但需要 use_sha_as_shan 标记）
+        int can_block = (rt == CARD_SHAN) || 
+                       (is_zhaoyun && rt == CARD_SHA && use_sha_as_shan);
+
+        if (can_block) {
             Card discard_entry = {rt, 0};
             remove_card_from_hand(target, shan_card_idx);
             gs->discard_pile[gs->discard_count++] = discard_entry;

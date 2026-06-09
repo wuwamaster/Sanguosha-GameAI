@@ -209,3 +209,229 @@ int ai_should_use_tao_to_save(GameState* gs, int saver_idx, int dying_idx) {
     }
 }
 
+/* ========================================================================
+ * 闪响应决策：AI 被杀时决定是否出闪（含赵云龙胆）
+ * ======================================================================== */
+int ai_decide_shan_response(GameState* gs, int defender_idx,
+                             int attacker_idx, int* out_card_idx,
+                             int* out_use_sha_as_shan) {
+    (void)attacker_idx;
+    if (gs == NULL || defender_idx < 0 || defender_idx >= gs->player_count
+        || out_card_idx == NULL || out_use_sha_as_shan == NULL)
+        return 0;
+
+    Character* defender = &gs->players[defender_idx];
+    Personality p = defender->personality;
+    int is_zhaoyun = (defender->hero == HERO_ZHAO_YUN);
+
+    /* 查找可用的防御牌 */
+    int shan_idx = -1, sha_idx = -1;
+    for (int i = 0; i < defender->hand_count; i++) {
+        if (defender->hand[i].type == CARD_SHAN) shan_idx = i;
+        if (is_zhaoyun && defender->hand[i].type == CARD_SHA) sha_idx = i;
+    }
+
+    /* 无防御牌 → 承受伤害 */
+    if (shan_idx < 0 && sha_idx < 0) {
+        *out_card_idx = -1;
+        *out_use_sha_as_shan = 0;
+        return 0;
+    }
+
+    /* 濒死状态 → 根据人格决定 */
+    if (defender->hp <= 1) {
+        int will_use = 1;
+        switch (p) {
+            case PERSON_RADICAL:
+                will_use = 0;  /* 激进：赌一波 */
+                break;
+            case PERSON_GAMBLER:
+                will_use = (rand() % 2 == 0);  /* 赌徒：50% */
+                break;
+            case PERSON_CONSERVATIVE:
+            default:
+                will_use = 1;  /* 保守：必出闪 */
+                break;
+        }
+        if (!will_use) {
+            *out_card_idx = -1;
+            *out_use_sha_as_shan = 0;
+            return 0;
+        }
+    }
+
+    *out_use_sha_as_shan = 0;
+
+    /* 赵云：决定用闪还是用杀当闪 */
+    if (is_zhaoyun) {
+        if (shan_idx >= 0 && sha_idx >= 0) {
+            /* 有闪有杀 → 人格决定 */
+            switch (p) {
+                case PERSON_RADICAL:
+                    /* 激进：杀当闪，保留真闪（真闪更灵活） */
+                    *out_use_sha_as_shan = 1;
+                    *out_card_idx = sha_idx;
+                    return 1;
+                case PERSON_CONSERVATIVE:
+                    /* 保守：真闪当闪，保留杀的进攻能力 */
+                    *out_card_idx = shan_idx;
+                    return 1;
+                case PERSON_GAMBLER:
+                default:
+                    if (rand() % 2 == 0) {
+                        *out_use_sha_as_shan = 1;
+                        *out_card_idx = sha_idx;
+                    } else {
+                        *out_card_idx = shan_idx;
+                    }
+                    return 1;
+            }
+        } else if (shan_idx < 0 && sha_idx >= 0) {
+            /* 只有杀 → 根据人格 */
+            if (p == PERSON_CONSERVATIVE) {
+                /* 保守：不出，留杀进攻 */
+                *out_card_idx = -1;
+                return 0;
+            } else {
+                *out_use_sha_as_shan = 1;
+                *out_card_idx = sha_idx;
+                return 1;
+            }
+        }
+    }
+
+    /* 普通武将或只有闪 → 用闪 */
+    if (shan_idx >= 0) {
+        *out_card_idx = shan_idx;
+        return 1;
+    }
+
+    *out_card_idx = -1;
+    return 0;
+}
+
+/* ========================================================================
+ * 弃牌决策：弃牌阶段选择弃哪张
+ * ======================================================================== */
+int ai_decide_discard(GameState* gs, int ai_idx) {
+    if (gs == NULL || ai_idx < 0 || ai_idx >= gs->player_count) return -1;
+
+    Character* ch = &gs->players[ai_idx];
+    Personality p = ch->personality;
+
+    /* 特殊情况：过河拆桥但所有对手都没手牌 */
+    for (int i = 0; i < ch->hand_count; i++) {
+        if (ch->hand[i].type == CARD_GUO_CAI) {
+            int can_use = 0;
+            for (int t = 0; t < gs->player_count; t++) {
+                if (t != ai_idx && gs->players[t].hp > 0
+                    && gs->players[t].hand_count > 0) {
+                    can_use = 1;
+                    break;
+                }
+            }
+            if (!can_use) return i;
+        }
+    }
+
+    /* 统计各类牌数量 */
+    int sha_count = 0, shan_count = 0;
+    for (int i = 0; i < ch->hand_count; i++) {
+        if (ch->hand[i].type == CARD_SHA) sha_count++;
+        else if (ch->hand[i].type == CARD_SHAN) shan_count++;
+    }
+
+    int best_idx = -1, best_score = -9999;
+
+    for (int i = 0; i < ch->hand_count; i++) {
+        CardType t = ch->hand[i].type;
+        int score = 0;
+
+        if (t == CARD_SHA) {
+            score = 20;
+            if (sha_count > 2) score += 20;
+            if (p == PERSON_RADICAL) score -= 15;
+            if (p == PERSON_CONSERVATIVE) score += 10;
+        }
+        else if (t == CARD_SHAN) {
+            score = 10;
+            if (shan_count > 2) score += 15;
+            if (p == PERSON_RADICAL) score += 20;
+            if (p == PERSON_CONSERVATIVE) score -= 15;
+        }
+        else if (t == CARD_TAO) {
+            if (ch->hp >= ch->max_hp) score = 80;
+            else if (ch->hp <= 1) score = -100;
+            else score = -20;
+        }
+        else if (t == CARD_GUO_CAI) {
+            score = 80;
+        }
+
+        if (p == PERSON_GAMBLER)
+            score += (rand() % 20) - 10;
+
+        if (score > best_score) {
+            best_score = score;
+            best_idx = i;
+        }
+    }
+
+    return best_idx;
+}
+
+/* ========================================================================
+ * 观星排序决策：诸葛亮观星时决定牌堆顶顺序
+ * ======================================================================== */
+void ai_decide_star_order(GameState* gs, int ai_idx,
+                          Card* cards, int count) {
+    (void)gs;
+    if (count <= 1) return;
+    if (ai_idx < 0 || ai_idx >= gs->player_count) return;
+
+    Character* ch = &gs->players[ai_idx];
+    Personality p = ch->personality;
+
+    int scores[5];
+    for (int i = 0; i < count; i++) {
+        CardType t = cards[i].type;
+        int s = 0;
+
+        switch (t) {
+            case CARD_SHA:   s = 7; break;
+            case CARD_TAO:   s = 10; break;
+            case CARD_SHAN:  s = 5; break;
+            case CARD_WU_ZHONG: s = 8; break;
+            case CARD_GUO_CAI: s = 6; break;
+            default:         s = 3; break;
+        }
+
+        if (p == PERSON_RADICAL) {
+            if (t == CARD_SHA) s += 3;
+            if (t == CARD_SHAN) s -= 2;
+        } else if (p == PERSON_CONSERVATIVE) {
+            if (t == CARD_TAO) s += 2;
+            if (t == CARD_SHAN) s += 2;
+            if (t == CARD_SHA) s -= 2;
+        } else if (p == PERSON_GAMBLER) {
+            s += (rand() % 6) - 3;
+        }
+
+        scores[i] = s;
+    }
+
+    /* 冒泡排序：好牌放前面（自己先摸） */
+    for (int i = 0; i < count - 1; i++) {
+        for (int j = 0; j < count - i - 1; j++) {
+            if (scores[j] < scores[j + 1]) {
+                int ts = scores[j];
+                scores[j] = scores[j + 1];
+                scores[j + 1] = ts;
+                Card tc = cards[j];
+                cards[j] = cards[j + 1];
+                cards[j + 1] = tc;
+            }
+        }
+    }
+}
+
