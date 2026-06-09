@@ -456,6 +456,10 @@ Action ui_get_player_action(GameState* gs) {
             if (!ok) continue;
 
             act.action_type = 0; act.card_index = selected; act.target = hit_target;
+            act.use_longdan_sha = 0;
+            act.use_longdan_shan = 0;
+            if (p->hero == HERO_ZHAO_YUN && ct == CARD_SHAN && hit_target != 0)
+                act.use_longdan_sha = 1;
             return act;
         }
     }
