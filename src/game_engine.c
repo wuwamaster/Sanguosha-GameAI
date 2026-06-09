@@ -259,6 +259,9 @@ static int card_target_is_legal(GameState* gs, int actor_idx, CardType type, int
     if (type == CARD_TAO) {
         return target_idx == actor_idx;
     }
+    if (type == CARD_WU_ZHONG) {
+        return target_idx == actor_idx;
+    }
     if (type == CARD_SHA) {
         if (target_idx == actor_idx) return 0;
         if (skill_empty_city_blocks_sha(gs, target_idx)) return 0;
