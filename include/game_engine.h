@@ -31,6 +31,15 @@ typedef enum {
     PERSON_GAMBLER
 } Personality;
 
+// ---------- 技能类型 ----------
+typedef enum {
+    SKILL_NONE = 0,
+    SKILL_LONG_DAN,      // 龙胆（赵云）
+    SKILL_PAO_XIAO,      // 咆哮（张飞）
+    SKILL_GUAN_XING,     // 观星（诸葛亮）
+    SKILL_KONG_CHENG     // 空城（诸葛亮）
+} SkillType;
+
 // ---------- 游戏事件系统 ----------
 typedef enum {
     EVENT_GAME_START,       // 游戏开始
@@ -52,6 +61,7 @@ typedef struct {
     int actor;              // 行动者索引
     int target;             // 目标索引（-1表示无）
     CardType card_type;     // 涉及的牌类型（CARD_SHA等）
+    SkillType skill_type;   // 技能类型（用于UI高亮）
     char message[128];      // 显示消息
     double shown_at;        // 首次显示时间（用于控制显示时长）
 } GameEvent;

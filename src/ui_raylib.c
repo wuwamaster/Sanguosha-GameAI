@@ -36,6 +36,25 @@ static RecentPlay g_recent[RECENT_PLAY_MAX];
 static int        g_recent_count = 0;
 #define RECENT_VISIBLE_SEC 2.5
 
+/* ---------- 浮动提示系统 ---------- */
+typedef struct {
+    char text[128];
+    double start_time;
+    float duration;
+    Color color;
+} FloatingHint;
+
+static FloatingHint g_floating_hint = {0};
+
+static void show_floating_hint(const char* text, Color color, float duration) {
+    strncpy(g_floating_hint.text, text, sizeof(g_floating_hint.text)-1);
+    g_floating_hint.start_time = GetTime();
+    g_floating_hint.duration = duration;
+    g_floating_hint.color = color;
+}
+
+/* draw_floating_hint 的实现放在 DrawCN/MeasureCN 定义之后 */
+
 /* ---------- 事件日志 ---------- */
 static void draw_events(GameState* gs);
 
@@ -82,6 +101,37 @@ static void DrawCN(const char* text, int x, int y, int fs, Color color) {
 static int MeasureCN(const char* text, int fs) {
     if (!g_font_loaded) return MeasureText(text, fs);
     return (int)MeasureTextEx(g_font, text, (float)fs, 1.0f).x;
+}
+
+/* ---------- 浮动提示绘制 ---------- */
+static void draw_floating_hint(void) {
+    if (g_floating_hint.text[0] == 0) return;
+    
+    double elapsed = GetTime() - g_floating_hint.start_time;
+    if (elapsed > g_floating_hint.duration) {
+        g_floating_hint.text[0] = 0;
+        return;
+    }
+    
+    // 淡入淡出
+    float alpha = 1.0f;
+    if (elapsed < 0.2f) alpha = elapsed / 0.2f;
+    if (elapsed > g_floating_hint.duration - 0.5f) 
+        alpha = (g_floating_hint.duration - elapsed) / 0.5f;
+    
+    // 从下方滑入
+    int y_offset = (int)((1.0f - alpha) * 30);
+    
+    Color c = g_floating_hint.color;
+    c.a = (unsigned char)(255 * alpha);
+    
+    int tw = MeasureCN(g_floating_hint.text, 24);
+    int x = (WIN_W - tw) / 2;
+    int y = 160 + y_offset;
+    
+    // 阴影 + 主文字
+    DrawCN(g_floating_hint.text, x+2, y+2, 24, (Color){0,0,0,(unsigned char)(100*alpha)});
+    DrawCN(g_floating_hint.text, x, y, 24, c);
 }
 
 /* ---------- 布局参数（绘制与点击共享） ---------- */
@@ -265,6 +315,9 @@ static void draw_scene(GameState* gs, int selected_card, const char* hint) {
     if (hint && hint[0])
         DrawCN(hint, 280, 350, 20, (Color){255,220,120,255});
 
+    /* 浮动错误提示 */
+    draw_floating_hint();
+
     /* 出牌区：最近 N 次出牌（横排，限时显示） */
     {
         int slot_w = 80, slot_h = 56, gap = 8;
@@ -394,6 +447,15 @@ Action ui_get_player_action(GameState* gs) {
         }
         if (hit_card >= 0) {
             CardType ct = p->hand[hit_card].type;
+            if (ct == CARD_SHA) {
+                /* 检查是否还有出杀次数 */
+                int is_zhangfei = (p->hero == HERO_ZHANG_FEI);
+                if (!is_zhangfei && gs->sha_used_this_turn >= 1) {
+                    show_floating_hint("本回合已使用过【杀】", RED, 1.5f);
+                    selected = -1;
+                    continue;
+                }
+            }
             if (ct == CARD_SHAN) {
                 int is_zhaoyun = (p->hero == HERO_ZHAO_YUN);
                 if (!is_zhaoyun) {
@@ -442,6 +504,14 @@ Action ui_get_player_action(GameState* gs) {
                     if (!ok) hint = "该牌只能对自己使用";
                     break;
                 case CARD_SHA:
+                    ok = (hit_target != 0);
+                    if (!ok) {
+                        hint = "该牌不能对自己使用";
+                    } else if (skill_empty_city_blocks_sha(gs, hit_target)) {
+                        show_floating_hint("【空城】目标无手牌，不能成为【杀】的目标", RED, 1.5f);
+                        ok = 0;
+                    }
+                    break;
                 case CARD_GUO_CAI:
                     ok = (hit_target != 0);
                     if (!ok) hint = "该牌不能对自己使用";
@@ -856,9 +926,31 @@ static void draw_events(GameState* gs) {
                 color = WHITE;
         }
 
+        /* 技能事件：根据技能类型高亮 */
+        int font_size = 18;
+        if (evt->type == EVENT_SKILL_USED && evt->skill_type != SKILL_NONE) {
+            font_size = 22;
+            switch (evt->skill_type) {
+                case SKILL_LONG_DAN:
+                    color = GOLD;
+                    break;
+                case SKILL_PAO_XIAO:
+                    color = RED;
+                    break;
+                case SKILL_GUAN_XING:
+                    color = PURPLE;
+                    break;
+                case SKILL_KONG_CHENG:
+                    color = SKYBLUE;
+                    break;
+                default:
+                    break;
+            }
+        }
+
         /* 右侧对齐显示 */
-        int text_width = MeasureCN(evt->message, 18);
-        DrawCN(evt->message, WIN_W - text_width - 20, y, 18, color);
+        int text_width = MeasureCN(evt->message, font_size);
+        DrawCN(evt->message, WIN_W - text_width - 20, y, font_size, color);
     }
 }
 

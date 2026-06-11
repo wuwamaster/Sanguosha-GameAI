@@ -10,12 +10,35 @@ extern int skill_watch_stars(GameState* gs, int actor_idx, Card* out_top, int* o
 extern void skill_watch_stars_apply(GameState* gs, Card* new_order, int count);
 extern int skill_empty_city_blocks_sha(GameState* gs, int target_idx);
 
+static GameEvent* get_last_event(GameState* gs) {
+    if (gs == NULL || gs->event_count == 0) return NULL;
+    int idx = (gs->event_head + gs->event_count - 1) % MAX_EVENTS;
+    return &gs->events[idx];
+}
+
+static void check_empty_city_trigger(GameState* gs, int player_idx);
+
 static void remove_card_from_hand(Character* ch, int index) {
     if (ch == NULL || index < 0 || index >= ch->hand_count) return;
     for (int i = index; i < ch->hand_count - 1; i++) {
         ch->hand[i] = ch->hand[i + 1];
     }
     ch->hand_count--;
+}
+
+/* 检查并触发空城技能提示 */
+static void check_empty_city_trigger(GameState* gs, int player_idx) {
+    if (gs == NULL) return;
+    if (player_idx < 0 || player_idx >= gs->player_count) return;
+    if (gs->players[player_idx].hero != HERO_ZHU_GE_LIANG) return;
+    if (gs->players[player_idx].hand_count != 0) return;
+    
+    const char* who = (player_idx == 0) ? "玩家" : (player_idx == 1) ? "AI1" : "AI2";
+    char msg[128];
+    snprintf(msg, sizeof(msg), "%s 进入【空城】，无手牌时不能成为【杀】的目标", who);
+    game_push_event(gs, EVENT_SKILL_USED, player_idx, -1, 0, msg);
+    GameEvent* evt = get_last_event(gs);
+    if (evt) evt->skill_type = SKILL_KONG_CHENG;
 }
 
 static void game_shuffle_deck(Card* deck, int count) {
@@ -284,6 +307,7 @@ int save_dying(GameState* gs, int dying_idx, int start_idx) {
             int actual_tao_idx = (saver->is_ai) ? tao_idx : player_tao_idx;
             if (actual_tao_idx >= 0) {
                 remove_card_from_hand(saver, actual_tao_idx);
+                check_empty_city_trigger(gs, searcher);
                 gs->discard_pile[gs->discard_count++] = (Card){CARD_TAO, 0};
                 gs->players[dying_idx].hp++;
                 saved = 1;
@@ -329,6 +353,7 @@ void apply_card_effect(GameState* gs, int user_idx, Card card, int target_idx) {
                 /* 记录被拆掉的牌类型 */
                 CardType removed_type = target->hand[0].type;
                 remove_card_from_hand(target, 0);
+                check_empty_city_trigger(gs, target_idx);
 
                 /* 推送过河拆桥事件 */
                 char msg[128];
@@ -370,6 +395,10 @@ static int card_target_is_legal(GameState* gs, int actor_idx, CardType type, int
     if (type == CARD_SHA) {
         if (target_idx == actor_idx) return 0;
         if (skill_empty_city_blocks_sha(gs, target_idx)) return 0;
+    }
+    /* 闪不能主动使用，只能在响应杀时使用 */
+    if (type == CARD_SHAN) {
+        return 0;
     }
     return 1;
 }
@@ -495,6 +524,8 @@ ActionResult game_perform_action(GameState* gs, Action act) {
                 char msg[128];
                 snprintf(msg, sizeof(msg), "%s 发动【龙胆】，用【闪】当【杀】", who);
                 game_push_event(gs, EVENT_SKILL_USED, gs->current_turn, -1, card.type, msg);
+                GameEvent* evt = get_last_event(gs);
+                if (evt) evt->skill_type = SKILL_LONG_DAN;
             }
         }
 
@@ -503,10 +534,22 @@ ActionResult game_perform_action(GameState* gs, Action act) {
         if (effective_type == CARD_SHA && !can_use_more_sha(gs, gs->current_turn)) return res;
 
         remove_card_from_hand(actor, act.card_index);
+        check_empty_city_trigger(gs, gs->current_turn);
         gs->discard_pile[gs->discard_count++] = card;
 
         if (effective_type == CARD_SHA) {
             gs->sha_used_this_turn++;
+            
+            /* 张飞额外使用杀 → 咆哮 */
+            if (actor->hero == HERO_ZHANG_FEI && gs->sha_used_this_turn > 1) {
+                const char* who = (gs->current_turn == 0) ? "玩家" : (gs->current_turn == 1) ? "AI1" : "AI2";
+                char msg[128];
+                snprintf(msg, sizeof(msg), "%s 发动【咆哮】，额外使用【杀】", who);
+                game_push_event(gs, EVENT_SKILL_USED, gs->current_turn, -1, CARD_SHA, msg);
+                GameEvent* evt = get_last_event(gs);
+                if (evt) evt->skill_type = SKILL_PAO_XIAO;
+            }
+            
             gs->need_shan_response = 1;
             gs->shan_source = gs->current_turn;
             gs->shan_target = act.target;
@@ -570,6 +613,7 @@ int game_resolve_shan(GameState* gs, int shan_card_idx, int use_sha_as_shan) {
         if (can_block) {
             Card discard_entry = {rt, 0};
             remove_card_from_hand(target, shan_card_idx);
+            check_empty_city_trigger(gs, gs->shan_target);
             gs->discard_pile[gs->discard_count++] = discard_entry;
             blocked = 1;
         }
@@ -595,6 +639,14 @@ int game_resolve_shan(GameState* gs, int shan_card_idx, int use_sha_as_shan) {
     }
     game_push_event(gs, EVENT_SHAN_RESPONSE, gs->shan_target, gs->shan_source,
                     blocked ? (use_sha_as_shan ? CARD_SHA : CARD_SHAN) : 0, msg);
+    
+    /* 赵云用杀当闪时推送龙胆技能事件 */
+    if (blocked && use_sha_as_shan) {
+        snprintf(msg, sizeof(msg), "%s 发动【龙胆】，用【杀】当【闪】", target_name);
+        game_push_event(gs, EVENT_SKILL_USED, gs->shan_target, -1, CARD_SHA, msg);
+        GameEvent* evt = get_last_event(gs);
+        if (evt) evt->skill_type = SKILL_LONG_DAN;
+    }
 
     gs->need_shan_response = 0;
     gs->shan_source = -1;
@@ -650,6 +702,8 @@ int game_advance_phase(GameState* gs) {
                 char msg[128];
                 snprintf(msg, sizeof(msg), "%s 发动【观星】，观看 %d 张牌", who, top_count);
                 game_push_event(gs, EVENT_SKILL_USED, gs->current_turn, -1, 0, msg);
+                GameEvent* evt = get_last_event(gs);
+                if (evt) evt->skill_type = SKILL_GUAN_XING;
                 
                 if (!gs->players[gs->current_turn].is_ai) {
                     gs->need_star_choice = 1;
@@ -719,6 +773,7 @@ void game_next_turn(GameState* gs) {
             for (int i = 0; i < excess && cur->hand_count > 0; i++) {
                 gs->discard_pile[gs->discard_count++] = cur->hand[0];
                 remove_card_from_hand(cur, 0);
+                check_empty_city_trigger(gs, gs->current_turn);
             }
         }
     }
@@ -735,6 +790,7 @@ void game_discard_card(GameState* gs, int card_idx) {
 
     gs->discard_pile[gs->discard_count++] = cur->hand[card_idx];
     remove_card_from_hand(cur, card_idx);
+    check_empty_city_trigger(gs, gs->current_turn);
 }
 
 void game_confirm_discard_done(GameState* gs) {
@@ -783,6 +839,7 @@ void game_push_event(GameState* gs, GameEventType type, int actor,
     gs->events[idx].actor = actor;
     gs->events[idx].target = target;
     gs->events[idx].card_type = card_type;
+    gs->events[idx].skill_type = SKILL_NONE;  // 默认无技能
     strncpy(gs->events[idx].message, message, sizeof(gs->events[idx].message) - 1);
     gs->events[idx].message[sizeof(gs->events[idx].message) - 1] = '\0';
     gs->events[idx].shown_at = -1.0;  // -1 表示还未显示
